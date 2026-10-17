@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-desktop/
+release/
+test-results/
+playwright-report/
+.env*
+*.trace.local.json
+.DS_Store
+artifacts/
