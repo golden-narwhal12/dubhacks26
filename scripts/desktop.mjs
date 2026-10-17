@@ -1,3 +1,18 @@
-import {build} from 'esbuild';
-await build({entryPoints:['desktop/main.ts'],bundle:true,platform:'node',format:'cjs',outfile:'dist-desktop/main.cjs',external:['electron'],sourcemap:true});
-await build({entryPoints:['desktop/preload.ts'],bundle:true,platform:'node',format:'cjs',outfile:'dist-desktop/preload.cjs',external:['electron']});
+import { build } from 'esbuild';
+await build({
+  entryPoints: ['desktop/main.ts'],
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  outfile: 'dist-desktop/main.cjs',
+  external: ['electron'],
+  sourcemap: true,
+});
+await build({
+  entryPoints: ['desktop/preload.ts'],
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  outfile: 'dist-desktop/preload.cjs',
+  external: ['electron'],
+});

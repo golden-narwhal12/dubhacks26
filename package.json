@@ -12,7 +12,13 @@
     "start": "electron .",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "check": "tsc --noEmit && vitest run"
+    "check": "tsc --noEmit && vitest run",
+    "setup:simavr": "node scripts/setup-simavr.mjs",
+    "test:toolchain": "TRACE_LIVE_TOOLCHAIN=1 vitest run tests/toolchain.test.ts",
+    "format": "prettier --write src desktop scripts tests *.ts docs AGENTS.md README.md",
+    "package": "npm run build && node scripts/package.mjs",
+    "icon": "electron scripts/icon.cjs",
+    "test:package": "TRACE_PACKAGED=1 playwright test tests/e2e/package.spec.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -26,6 +32,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@electron/packager": "^20.3.0",
     "@playwright/test": "^1.56.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
@@ -33,8 +40,12 @@
     "@vitejs/plugin-react": "^5.0.0",
     "electron": "^44.9.0",
     "esbuild": "^0.25.0",
+    "prettier": "^3.9.10",
     "typescript": "^5.9.0",
     "vite": "^7.1.0",
     "vitest": "^4.1.12"
+  },
+  "overrides": {
+    "dompurify": "3.4.17"
   }
 }
