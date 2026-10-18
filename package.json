@@ -18,7 +18,9 @@
     "format": "prettier --write src desktop scripts tests *.ts docs AGENTS.md README.md",
     "package": "npm run build && node scripts/package.mjs",
     "icon": "electron scripts/icon.cjs",
-    "test:package": "TRACE_PACKAGED=1 playwright test tests/e2e/package.spec.ts"
+    "test:package": "TRACE_PACKAGED=1 playwright test tests/e2e/package.spec.ts",
+    "evaluate:gemini": "node scripts/evaluate.mjs",
+    "evaluate:fixtures": "playwright test tests/e2e/evaluation-fixtures.spec.ts tests/e2e/agent-runtime.spec.ts tests/e2e/agent-diagnostics.spec.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

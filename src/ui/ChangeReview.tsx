@@ -32,6 +32,12 @@ export function ChangeReview({
           return `Move ${c.id} in ${c.view} view`;
         case 'configureComponent':
           return `Update ${c.id} properties`;
+        case 'setTelemetry':
+          return `Debug channel → ${c.mapping.label} (${c.mapping.field})`;
+        case 'removeTelemetry':
+          return `Remove Debug channel ${c.id}`;
+        case 'setBoardSettings':
+          return 'Update board configuration';
         case 'setTarget':
           return `Build target → ${c.id}`;
         case 'removeBinding':

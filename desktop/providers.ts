@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { stableKey } from '../src/domain/semantics';
+import { normalizeUsage, type NormalizedUsage } from '../src/services/usage';
 import { toolDefinitions } from '../src/domain/tools';
 import type {
   ProviderId,
@@ -32,8 +34,8 @@ export const ProviderRequestSchema = z
           .strict(),
       )
       .min(1)
-      .max(60),
-    maxTokens: z.number().int().min(1).max(2048),
+      .max(300),
+    maxTokens: z.number().int().min(1).max(32768),
     requestId: z.string().uuid(),
   })
   .strict();
@@ -81,6 +83,7 @@ export function providerPayload(req: ProviderRequest) {
             })),
           },
         ],
+        toolConfig: { functionCallingConfig: { mode: 'VALIDATED' } },
         generationConfig: {
           maxOutputTokens: req.maxTokens,
           temperature: 0.25,
@@ -157,6 +160,7 @@ export async function* readSSE(response: Response, signal: AbortSignal) {
   if (!response.body) throw new Error('Provider returned an empty stream');
   const reader = response.body.getReader(),
     decoder = new TextDecoder();
+  const seenEvents = new Set<string>();
   let buffer = '',
     bytes = 0;
   try {
@@ -176,6 +180,13 @@ export async function* readSSE(response: Response, signal: AbortSignal) {
           .filter((l) => l.startsWith('data:'))
           .map((l) => l.slice(5).trimStart())
           .join('\n');
+        const eventId = block
+          .split('\n')
+          .find((l) => l.startsWith('id:'))
+          ?.slice(3)
+          .trim();
+        if (eventId && seenEvents.has(eventId)) continue;
+        if (eventId) seenEvents.add(eventId);
         if (data && data !== '[DONE]') yield JSON.parse(data);
       }
     }
@@ -194,8 +205,14 @@ export async function* readSSE(response: Response, signal: AbortSignal) {
 }
 export class StreamAccumulator {
   text = '';
-  input = 0;
-  output = 0;
+  input: number | null = null;
+  output: number | null = null;
+  private usageRaw: Record<string, any> = {};
+  private events = 0;
+  private duplicateCalls = 0;
+  private responseId: string | undefined;
+  private finishReason: string | undefined;
+  private geminiIdentities = new Map<string, string>();
   private calls = new Map<number, any>();
   private geminiParts: any[] = [];
   private blocks: any[] = [];
@@ -204,44 +221,54 @@ export class StreamAccumulator {
   constructor(
     private provider: ProviderId,
     private onText: (text: string) => void = () => {},
+    private requestId: string = crypto.randomUUID(),
   ) {}
   private append(text: string) {
     this.text += text;
     if (text) this.onText(text);
   }
   push(chunk: any) {
+    this.events++;
+    this.responseId = chunk.responseId ?? chunk.id ?? this.responseId;
     if (chunk.error) throw new Error('Provider stream failed');
     if (this.provider === 'gemini') {
       const candidate = chunk.candidates?.[0];
-      if (candidate?.finishReason) this.complete = true;
+      if (candidate?.finishReason) {
+        this.complete = true;
+        this.finishReason = candidate.finishReason;
+      }
       if (chunk.promptFeedback?.blockReason) this.blocked = 'Request blocked by provider';
       if (candidate?.finishReason && !['STOP', 'MAX_TOKENS'].includes(candidate.finishReason))
         this.blocked = `Provider stopped: ${candidate.finishReason}`;
       if (candidate?.finishReason === 'MAX_TOKENS')
         this.blocked = 'Response reached output limit; reduce scope and retry';
       for (const part of candidate?.content?.parts ?? []) {
-        this.geminiParts.push(part);
-        if (part.text && !part.thought) this.append(part.text);
         if (part.functionCall) {
+          const f = part.functionCall,
+            signature = stableKey([f.name, f.args ?? {}]);
+          const identity = f.id ? `id:${f.id}` : `content:${signature}`;
+          const previous = this.geminiIdentities.get(identity);
+          if (previous !== undefined) {
+            if (previous !== signature) throw new Error('Conflicting replayed Gemini tool-call ID');
+            this.duplicateCalls++;
+            continue;
+          }
+          this.geminiIdentities.set(identity, signature);
           const i = this.calls.size;
           this.calls.set(i, {
-            id: part.functionCall.id ?? `call-${i}`,
-            name: part.functionCall.name,
-            args: part.functionCall.args ?? {},
+            id: f.id ?? `${this.requestId}:call-${i}`,
+            name: f.name,
+            args: f.args ?? {},
           });
         }
+        this.geminiParts.push(part);
+        if (part.text && !part.thought) this.append(part.text);
       }
-      if (chunk.usageMetadata) {
-        this.input = chunk.usageMetadata.promptTokenCount ?? this.input;
-        this.output =
-          (chunk.usageMetadata.candidatesTokenCount ?? 0) +
-          (chunk.usageMetadata.thoughtsTokenCount ?? 0);
-      }
+      if (chunk.usageMetadata) this.usageRaw = { ...this.usageRaw, ...chunk.usageMetadata };
     } else if (this.provider === 'anthropic') {
       if (chunk.type === 'message_stop') this.complete = true;
       if (chunk.type === 'message_start') {
-        this.input = chunk.message?.usage?.input_tokens ?? 0;
-        this.output = chunk.message?.usage?.output_tokens ?? 0;
+        this.usageRaw = { ...this.usageRaw, ...chunk.message?.usage };
       }
       if (chunk.type === 'content_block_start') {
         this.blocks[chunk.index] = { ...chunk.content_block };
@@ -266,7 +293,7 @@ export class StreamAccumulator {
         }
       }
       if (chunk.type === 'message_delta') {
-        this.output = chunk.usage?.output_tokens ?? this.output;
+        this.usageRaw = { ...this.usageRaw, ...chunk.usage };
         if (chunk.delta?.stop_reason === 'max_tokens')
           this.blocked = 'Response reached output limit; reduce scope and retry';
       }
@@ -282,8 +309,7 @@ export class StreamAccumulator {
         this.calls.set(t.index, existing);
       }
       if (chunk.usage) {
-        this.input = chunk.usage.prompt_tokens ?? 0;
-        this.output = chunk.usage.completion_tokens ?? 0;
+        this.usageRaw = { ...this.usageRaw, ...chunk.usage };
       }
       if (choice?.finish_reason) this.complete = true;
       if (choice?.finish_reason === 'length')
@@ -323,7 +349,20 @@ export class StreamAccumulator {
             }
           : {}),
       };
-    return { text: this.text, calls, usage: { input: this.input, output: this.output }, native };
+    const usage = normalizeUsage(this.provider, this.usageRaw);
+    return {
+      text: this.text,
+      calls,
+      usage,
+      native,
+      metadata: {
+        requestId: this.requestId,
+        responseId: this.responseId,
+        events: this.events,
+        duplicateCalls: this.duplicateCalls,
+        finishReason: this.finishReason,
+      },
+    };
   }
 }
 export async function callProvider(
@@ -356,7 +395,10 @@ export async function callProvider(
   }
   if (!response.ok) {
     let detail = '';
-    if ((response.status === 400 || response.status === 422) && response.body) {
+    if (
+      (response.status === 400 || response.status === 422 || response.status === 429) &&
+      response.body
+    ) {
       const reader = response.body.getReader();
       let raw = '';
       try {
@@ -366,7 +408,13 @@ export async function callProvider(
           raw += new TextDecoder().decode(value);
         }
         const error = JSON.parse(raw)?.error;
-        if (typeof error?.message === 'string')
+        if (response.status === 429) {
+          const retry = error?.details?.find((d: any) =>
+            String(d['@type'] ?? '').endsWith('RetryInfo'),
+          )?.retryDelay;
+          if (typeof retry === 'string' && /^\d+(?:\.\d+)?s$/.test(retry))
+            detail = `Provider retry delay: ${retry}. No automatic quota retry.`;
+        } else if (typeof error?.message === 'string')
           detail = error.message
             .split(key)
             .join('[redacted]')
@@ -389,7 +437,7 @@ export async function callProvider(
       `${req.provider}: ${message} (HTTP ${response.status}).${detail ? ` ${detail}` : ''} No provider fallback was used.`,
     );
   }
-  const accumulator = new StreamAccumulator(req.provider, onText);
+  const accumulator = new StreamAccumulator(req.provider, onText, req.requestId);
   try {
     for await (const chunk of readSSE(response, combined)) accumulator.push(chunk);
     return accumulator.finish();

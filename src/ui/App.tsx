@@ -158,6 +158,12 @@ export function App() {
         case 'settings':
           useWorkspace.setState({ settings: true });
           break;
+        case 'undo-project':
+          current.undo();
+          break;
+        case 'redo-project':
+          current.redo();
+          break;
         case 'undo':
         case 'redo': {
           const input = (document.activeElement as HTMLElement)?.closest(

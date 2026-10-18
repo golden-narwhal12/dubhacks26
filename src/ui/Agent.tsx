@@ -1,15 +1,107 @@
-import { useState } from 'react';
-import { ArrowUp, Square, Settings2, Sparkles, Check, X, ChevronRight } from 'lucide-react';
+import type { Message } from './store';
+import { ArrowUp, Square, Settings2, Sparkles, Check, X } from 'lucide-react';
 import { useWorkspace, uid } from './store';
 import { Badge, IconButton } from './primitives';
 import { providerDefaults } from '../services/bridge';
 import { ChangeReview } from './ChangeReview';
 import { buildKey } from '../domain/semantics';
 import { buildIssueId } from '../services/participation';
+type Activity = { key: string; tools: Message[] };
+type ConversationEntry = { message: Message } | { activity: Activity };
+const callIdentity = (message: Message) =>
+  `${message.requestId ?? ''}:${message.toolCallId ?? message.id}`;
+/** Stable call identity deduplicates replayed activity, never distinct provider calls. */
+function conversationEntries(messages: Message[]): ConversationEntry[] {
+  const entries: ConversationEntry[] = [];
+  const groups = new Map<string, Activity>();
+  let segment = 0;
+  for (const message of messages) {
+    if (message.role === 'user') segment++;
+    if (message.role !== 'activity' || message.kind === 'status' || message.kind === 'change') {
+      entries.push({ message });
+      continue;
+    }
+    const key = message.taskId ?? message.requestId ?? `legacy-${segment}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { key, tools: [] };
+      groups.set(key, group);
+      entries.push({ activity: group });
+    }
+    const identity = callIdentity(message);
+    const duplicate = group.tools.findIndex((tool) => callIdentity(tool) === identity);
+    if (duplicate >= 0) group.tools[duplicate] = { ...group.tools[duplicate], ...message };
+    else group.tools.push(message);
+  }
+  return entries;
+}
+function ActivityGroup({ activity, busy }: { activity: Activity; busy: boolean }) {
+  const running = activity.tools.find(
+    (tool) => tool.status === 'running' || tool.status === 'pending',
+  );
+  const failures = activity.tools.filter((tool) => tool.status === 'failed');
+  const pending = activity.tools.filter(
+    (tool) => tool.status === 'running' || tool.status === 'pending',
+  );
+  const active = busy && !!running;
+  const label = active
+    ? `${running.toolName?.replaceAll('_', ' ') ?? running.text.split('\n')[0]} · ${activity.tools.length} tools`
+    : `${activity.tools.length} ${activity.tools.length === 1 ? 'step' : 'steps'}${failures.length || pending.length ? '' : ' completed'}`;
+  return (
+    <div className="activity-group" data-task-id={activity.key}>
+      <details>
+        <summary>
+          {active && <span className="working-dot" />}
+          <span>{label}</span>
+          {failures.length > 0 && <span className="danger">{failures.length} failed</span>}
+          {!active && pending.length > 0 && <span>{pending.length} pending</span>}
+        </summary>
+        <ol className="activity-steps">
+          {activity.tools.map((tool) => (
+            <li
+              key={callIdentity(tool)}
+              data-tool-call-id={tool.toolCallId ?? tool.id}
+              data-request-id={tool.requestId}
+            >
+              <div className="row">
+                <span>{tool.toolName?.replaceAll('_', ' ') ?? tool.text.split('\n')[0]}</span>
+                <span className="spacer" />
+                <small className={tool.status === 'failed' ? 'danger' : ''}>
+                  {tool.status ?? 'completed'}
+                </small>
+                {tool.startedAt && tool.finishedAt && (
+                  <small>{((tool.finishedAt - tool.startedAt) / 1000).toFixed(1)}s</small>
+                )}
+              </div>
+              {tool.text && tool.toolName && <p>{tool.text}</p>}
+              {tool.details && <pre>{tool.details}</pre>}
+            </li>
+          ))}
+        </ol>
+      </details>
+      {failures.map((tool) => (
+        <p key={callIdentity(tool)} className="activity-error" role="status">
+          {tool.toolName?.replaceAll('_', ' ')}: {tool.text.split('\n')[0]}
+        </p>
+      ))}
+    </div>
+  );
+}
 export function Agent() {
   const s = useWorkspace();
-  const prompt=s.agentDraft,setPrompt=(agentDraft:string)=>useWorkspace.setState({agentDraft});
-  const dismissed=s.dismissedSuggestions,setDismissed=(dismissedSuggestions:string[])=>useWorkspace.setState({dismissedSuggestions});
+  const entries = conversationEntries(s.messages);
+  const hasActiveGroup =
+    s.agentBusy &&
+    entries.some(
+      (entry) =>
+        'activity' in entry &&
+        entry.activity.tools.some((tool) => tool.status === 'running' || tool.status === 'pending'),
+    );
+  const prompt = s.agentDraft,
+    setPrompt = (agentDraft: string) => useWorkspace.setState({ agentDraft });
+  const dismissed = s.dismissedSuggestions,
+    setDismissed = (dismissedSuggestions: string[]) =>
+      useWorkspace.setState({ dismissedSuggestions });
   const pinIssue = s.diagnostics.find((d) => d.fix && d.revision === s.project.revision);
   const failedBuild =
     s.result &&
@@ -87,48 +179,59 @@ export function Agent() {
             ) : null}
           </div>
         ) : (
-          s.messages.map((m) => (
-            <div key={m.id} className={`message ${m.role}`}>
-              <div className="message-label">
-                {m.role === 'user' ? 'You' : m.role === 'activity' ? 'Tool activity' : 'Trace'}
-              </div>
-              {m.role === 'activity' ? (
-                <details>
-                  <summary>{m.text.split('\n')[0]}</summary>
-                  {m.details && <pre>{m.details}</pre>}
-                </details>
-              ) : (
+          entries.map((entry) => {
+            if ('activity' in entry)
+              return (
+                <ActivityGroup
+                  key={entry.activity.key}
+                  activity={entry.activity}
+                  busy={s.agentBusy}
+                />
+              );
+            const m = entry.message;
+            return (
+              <div key={m.id} className={`message ${m.role} ${m.kind ?? ''}`}>
+                {m.role !== 'activity' && (
+                  <div className="message-label">{m.role === 'user' ? 'You' : 'Trace'}</div>
+                )}
                 <p>{m.text}</p>
-              )}
-              {m.objectIds?.length && (
-                <div className="row wrap">
-                  {m.objectIds.map((id) => (
-                    <button
-                      key={id}
-                      className="object-link"
-                      onClick={() => s.select({ kind: 'component', id })}
-                    >
-                      {s.project.components.find((c) => c.id === id)?.ref ?? id}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {m.details && m.role !== 'activity' && (
-                <details>
-                  <summary>Details</summary>
-                  <pre>{m.details}</pre>
-                </details>
-              )}
-            </div>
-          ))
+                {!!m.objectIds?.length && (
+                  <div className="row wrap">
+                    {m.objectIds.map((id) => (
+                      <button
+                        key={id}
+                        className="object-link"
+                        onClick={() => s.select({ kind: 'component', id })}
+                      >
+                        {s.project.components.find((c) => c.id === id)?.ref ?? id}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {m.details && (
+                  <details>
+                    <summary>Details</summary>
+                    <pre>{m.details}</pre>
+                  </details>
+                )}
+              </div>
+            );
+          })
         )}
-        {s.agentBusy && (
+        {s.agentBusy && !hasActiveGroup && (
           <div className="agent-working">
             <span className="working-dot" />
             {s.agentStatus}
           </div>
         )}
       </div>
+      {s.agentResumeAvailable && !s.agentBusy && (
+        <div className="agent-resume">
+          <button onClick={() => window.dispatchEvent(new Event('trace:agent-resume'))}>
+            Resume task
+          </button>
+        </div>
+      )}
       {s.proposal && (
         <div className="proposal">
           <div className="row">
@@ -164,6 +267,8 @@ export function Agent() {
                       {
                         id: uid('msg'),
                         role: 'activity',
+                        kind: 'change',
+                        status: 'completed',
                         text: 'Applied grouped change. Undo is available.',
                       },
                     ],
@@ -189,13 +294,12 @@ export function Agent() {
               onClick={() =>
                 begin(
                   pinIssue
-                    ? 'Investigate the current pin mismatch and propose a coordinated circuit and firmware correction.'
+                    ? `Fix diagnostic ${pinIssue.id}: ${pinIssue.title}. Use its established deterministic quick fix if available, preserve unrelated work, recheck and compile; no hardware operation.`
                     : 'Read the latest failed build output and relevant firmware, explain the compiler error, and propose a correction.',
                 )
               }
             >
-              <Sparkles size={13} />{' '}
-              {pinIssue ? 'Investigate pin mismatch' : 'Explain failed build'}
+              <Sparkles size={13} /> {pinIssue ? 'Fix issue with Agent' : 'Explain failed build'}
             </button>
             <IconButton
               title="Dismiss suggestion"

@@ -9,6 +9,8 @@ export interface Diagnostic {
   revision: number;
   severity: 'error' | 'warning' | 'unknown' | 'info';
   layer: 'electrical' | 'firmware' | 'coverage';
+  requiresPhysicalFacts?: boolean;
+  requiresAgentResolution?: boolean;
   title: string;
   detail: string;
   objectIds: string[];
@@ -41,6 +43,27 @@ export function constantSpan(
 }
 export const constantValue = (content: string, symbol: string) =>
   constantSpan(content, symbol)?.value ?? null;
+/** Narrow Arduino pin constants, including visible A0–A15 aliases. No arbitrary C++ evaluation. */
+export function pinConstantSpan(
+  content: string,
+  symbol: string,
+): { literal: string; start: number; end: number } | null {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(symbol)) return null;
+  const clean = content.replace(
+    /\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g,
+    (s) => s.replace(/[^\n]/g, ' '),
+  );
+  const re = new RegExp(
+    `(\\b(?:constexpr|const)\\s+(?:[A-Za-z_][A-Za-z0-9_]*\\s+)+${symbol}\\s*=\\s*)(A\\d+|\\d+)(\\s*;)|(^[ \\t]*#define[ \\t]+${symbol}[ \\t]+)(A\\d+|\\d+)([ \\t]*$)`,
+    'gm',
+  );
+  const matches = [...clean.matchAll(re)];
+  if (matches.length !== 1) return null;
+  const m = matches[0],
+    literal = m[2] ?? m[5],
+    start = m.index! + (m[1] ?? m[4]).length;
+  return { literal, start, end: start + literal.length };
+}
 export function validateCircuit(p: Project): Diagnostic[] {
   const result: Diagnostic[] = [];
   const nets = deriveNets(p);
@@ -164,7 +187,8 @@ export function validateCircuit(p: Project): Diagnostic[] {
       ).values(),
     ];
     const observed = candidates.length === 1 ? candidates[0] : undefined;
-    const value = constantValue(file.content, b.symbol);
+    const pinSpan = pinConstantSpan(file.content, b.symbol);
+    const value = pinSpan?.literal ?? null;
     const actual = observed ? terminal(p, observed) : undefined;
     if (!observed)
       add({
@@ -179,10 +203,18 @@ export function validateCircuit(p: Project): Diagnostic[] {
         evidenceIds: [],
         nextAction: 'Connect the signal to one GPIO, then review the binding.',
       });
-    else if (actual?.gpio !== t.gpio || value !== Number(actual?.firmwareAlias)) {
+    else if (
+      actual?.gpio !== t.gpio ||
+      !(
+        value === actual?.firmwareAlias ||
+        (p.components.find((c) => c.id === b.boardId)?.partId === 'arduino-mega-r3' &&
+          /^A\d+$/.test(actual?.firmwareAlias ?? '') &&
+          Number(value) === 54 + Number(actual!.firmwareAlias!.slice(1)))
+      )
+    ) {
       const alias = actual?.firmwareAlias;
-      const canFix = value !== null && alias !== undefined && /^\d+$/.test(alias);
-      const span = constantSpan(file.content, b.symbol);
+      const canFix = value !== null && alias !== undefined && /^(?:A\d+|\d+)$/.test(alias);
+      const span = pinSpan;
       const replacement =
         canFix && span
           ? file.content.slice(0, span.start) + alias + file.content.slice(span.end)
@@ -257,6 +289,98 @@ export function validateCircuit(p: Project): Diagnostic[] {
         objectIds: [c.id],
         rule: 'led.series-resistor',
         evidenceIds: partById(c.partId).evidence.map((e) => e.id),
+        ...(() => {
+          const direct = p.wires.filter(
+            (w) =>
+              (w.from.componentId === c.id && w.from.terminalId === 'a') ||
+              (w.to.componentId === c.id && w.to.terminalId === 'a'),
+          );
+          const other =
+            direct.length === 1
+              ? direct[0].from.componentId === c.id
+                ? direct[0].to
+                : direct[0].from
+              : null;
+          const id = `limit-${c.id.slice(0, 82)}`,
+            rf = `R-${c.ref}`.slice(0, 48);
+          const board = other ? p.components.find((x) => x.id === other.componentId) : null;
+          const voltage = other ? terminal(p, other).voltage : undefined,
+            forward = c.config.forwardVoltageV ?? partById(c.partId).forwardV,
+            current = c.config.maxCurrentMa ?? partById(c.partId).maxCurrentMa ?? 10;
+          if (
+            !cathodeGround ||
+            !other ||
+            !board ||
+            partById(board.partId).kind !== 'board' ||
+            terminal(p, other).kind !== 'gpio' ||
+            voltage === undefined ||
+            forward === undefined ||
+            p.components.some((x) => x.id === id || x.ref === rf)
+          )
+            return {};
+          const min = Math.max(1, (voltage - forward) / (Math.min(current, 20) / 1000));
+          const resistance = Math.ceil(min / 330) * 330;
+          if (
+            resistance > 1e12 ||
+            p.components.length >= 100 ||
+            p.wires.length >= 500 ||
+            p.wires.some((w) => w.id === `${id}-in` || w.id === `${id}-out`)
+          )
+            return {};
+          const led = p.layouts.wiring[c.id];
+          return {
+            fix: {
+              summary: `Add ${resistance} Ω series current limiting for ${c.ref}`,
+              commands: [
+                { type: 'disconnect' as const, id: direct[0].id },
+                {
+                  type: 'addComponent' as const,
+                  component: {
+                    id,
+                    partId: 'generic-resistor',
+                    partVersion: 1 as const,
+                    ref: rf,
+                    config: { resistanceOhms: resistance },
+                  },
+                  placement: {
+                    x: Math.max(-10000, led.x - 180),
+                    y: Math.min(10000, led.y + 40),
+                    rotation: 0 as const,
+                  },
+                },
+                {
+                  type: 'connect' as const,
+                  wire: {
+                    id: `${id}-in`,
+                    from: other,
+                    to: { componentId: id, terminalId: 'p1' },
+                    color: 'mint' as const,
+                  },
+                },
+                {
+                  type: 'connect' as const,
+                  wire: {
+                    id: `${id}-out`,
+                    from: { componentId: id, terminalId: 'p2' },
+                    to: { componentId: c.id, terminalId: 'a' },
+                    color: 'mint' as const,
+                  },
+                },
+                ...p.bindings
+                  .filter(
+                    (b) =>
+                      b.target.componentId === c.id &&
+                      b.target.terminalId === 'a' &&
+                      b.boardId === board.id,
+                  )
+                  .map((b) => ({
+                    type: 'setBinding' as const,
+                    binding: { ...b, target: { componentId: id, terminalId: 'p1' } },
+                  })),
+              ],
+            },
+          };
+        })(),
       });
     if (!cathodeGround)
       add({
@@ -305,6 +429,27 @@ export function validateCircuit(p: Project): Diagnostic[] {
         add({
           id: `led-estimate-${c.id}`,
           severity: ma > threshold ? 'warning' : 'info',
+          requiresAgentResolution: ma > threshold,
+          ...(ma > threshold && resistor.partId === 'generic-resistor'
+            ? {
+                fix: {
+                  summary: `Increase ${resistor.ref} to meet the configured current assumption`,
+                  commands: [
+                    {
+                      type: 'configureComponent' as const,
+                      id: resistor.id,
+                      config: {
+                        resistanceOhms:
+                          Math.ceil(
+                            Math.max(1, (voltage - forwardV) / (Math.min(threshold, 20) / 1000)) /
+                              330,
+                          ) * 330,
+                      },
+                    },
+                  ],
+                },
+              }
+            : {}),
           layer: 'electrical',
           title: `${c.ref}: ≈${ma.toFixed(1)} mA nominal estimate`,
           detail: `(${voltage} V − ${forwardV} V assumed/typical) / ${resistance} Ω. Assumes GPIO high at nominal supply, 25 °C and the documented simple series path. GPIO drop, tolerance, thermal behavior and load dynamics are not simulated; this is not a guaranteed current or power budget.`,
@@ -365,6 +510,48 @@ export function validateCircuit(p: Project): Diagnostic[] {
           evidenceIds: ['itr-pinout'],
         });
     } else {
+      if (
+        part.kind === 'servo' &&
+        connected('power').some(
+          (e) =>
+            partById(p.components.find((c) => c.id === e.componentId)!.partId).kind === 'board' &&
+            terminal(p, e).kind === 'power',
+        )
+      )
+        add({
+          id: `servo-power-${component.id}`,
+          requiresPhysicalFacts: true,
+          severity: 'warning',
+          layer: 'electrical',
+          title: `${component.ref}: board supply capacity unverified`,
+          detail:
+            'This generic servo is connected to a board supply rail. Its transient/stall current and this power path capacity are not documented. Do not assume USB/board power is adequate; document an appropriate external supply or confirm the actual load and distribution.',
+          objectIds: [component.id, ...connected('power').map((e) => e.componentId)],
+          rule: 'servo.supply-capacity',
+          evidenceIds: ['sg90-reference'],
+          nextAction: 'Resolve the actual servo power source before physical operation.',
+        });
+      if (
+        part.kind === 'encoder' &&
+        ['scl', 'sda'].some((id) =>
+          connected(id).some(
+            (e) => terminal(p, e).kind === 'gpio' && (terminal(p, e).voltage ?? 0) > 3.3,
+          ),
+        )
+      )
+        add({
+          id: `encoder-bus-${component.id}`,
+          requiresPhysicalFacts: true,
+          severity: 'warning',
+          layer: 'electrical',
+          title: `${component.ref}: I²C logic and pull-ups need review`,
+          detail:
+            'A 3.3 V-listed module bus is directly connected to a higher-voltage board GPIO. Module pull-up rails/routing and logic compatibility are not verified. A chip datasheet alone does not verify this breakout; identify appropriate level conversion/pull-ups or confirm the actual interface before physical use.',
+          objectIds: [component.id, ...connected('sda').map((e) => e.componentId)],
+          rule: 'encoder.bus-interface',
+          evidenceIds: ['as-photo'],
+          nextAction: 'Confirm the module circuit and interface; never assume 5 V tolerance.',
+        });
       const supply = part.kind === 'encoder' ? 'vcc' : 'power';
       if (!connected(supply).length || !connected('gnd').length)
         add({
@@ -393,5 +580,88 @@ export function validateCircuit(p: Project): Diagnostic[] {
     rule: 'coverage',
     evidenceIds: [],
   });
+  const literals = p.files.flatMap((f) =>
+    [
+      ...f.content
+        .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\])*"/g, (m) =>
+          m.startsWith('/') ? ' '.repeat(m.length) : m,
+        )
+        .matchAll(/Serial\.(?:print|println)\s*\(\s*"([^"\\]*(?:\\.[^"\\]*)*)"/g),
+    ].map((m) => m[1]),
+  );
+  for (const mapping of p.telemetry) {
+    if (!mapping.units.trim() && ['raw', 'measurement', 'command'].includes(mapping.meaning))
+      add({
+        id: `telemetry-units-${mapping.id}`,
+        requiresAgentResolution: true,
+        severity: 'warning',
+        layer: 'firmware',
+        title: `${mapping.label}: units not declared`,
+        detail:
+          'Declare the actual reported units (ADC counts, degrees, microseconds, or explicitly unitless as appropriate). The parser cannot infer physical units or turn a command into measured feedback.',
+        objectIds: [mapping.id, ...(mapping.componentId ? [mapping.componentId] : [])],
+        rule: 'telemetry.units',
+        evidenceIds: [],
+        nextAction:
+          'Set the channel units from visible firmware semantics; leave physical interpretation unknown when needed.',
+      });
+    if (
+      mapping.parser === 'keyvalue' &&
+      literals.some((t) => t.includes(`${mapping.field}:`)) &&
+      !literals.some((t) => t.includes(`${mapping.field}=`))
+    )
+      add({
+        id: `telemetry-format-${mapping.id}`,
+        requiresAgentResolution: true,
+        severity: 'warning',
+        layer: 'firmware',
+        title: `${mapping.label}: reporting delimiter mismatch`,
+        detail:
+          'The visible literal Serial label uses a colon, but this channel parser requires key=value. Change visible reporting or choose an actually supported parser; missing values must not become zero.',
+        objectIds: [...(mapping.componentId ? [mapping.componentId] : []), mapping.id],
+        rule: 'telemetry.literal-format',
+        evidenceIds: [],
+        nextAction: 'Align the channel field/parser with visible firmware output.',
+      });
+    const component = p.components.find((c) => c.id === mapping.componentId);
+    if (component && partById(component.partId).kind === 'board' && mapping.terminalId) {
+      const related =
+        netFor(nets, {
+          componentId: component.id,
+          terminalId: mapping.terminalId,
+        })?.terminals.filter(
+          (e) =>
+            e.componentId !== component.id &&
+            ['servo', 'encoder', 'potentiometer', 'photointerruptor'].includes(
+              partById(p.components.find((c) => c.id === e.componentId)!.partId).kind,
+            ),
+        ) ?? [];
+      if (related.length === 1)
+        add({
+          id: `telemetry-component-${mapping.id}`,
+          requiresAgentResolution: true,
+          severity: 'warning',
+          layer: 'firmware',
+          title: `${mapping.label}: associate the reporting component`,
+          detail: `The mapped board terminal connects to ${related[0].componentId}. The readout is currently associated with the board; explicitly associate the sensor/actuator so its provenance and meaning remain clear. This does not imply mechanical linkage or measured feedback.`,
+          objectIds: [component.id, related[0].componentId, mapping.id],
+          rule: 'telemetry.component-association',
+          evidenceIds: [],
+          fix: {
+            summary: `Associate ${mapping.label} with ${related[0].componentId}`,
+            commands: [
+              {
+                type: 'setTelemetry',
+                mapping: {
+                  ...mapping,
+                  componentId: related[0].componentId,
+                  terminalId: related[0].terminalId,
+                },
+              },
+            ],
+          },
+        });
+    }
+  }
   return result;
 }

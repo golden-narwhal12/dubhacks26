@@ -30,7 +30,7 @@ describe('real provider protocol contracts (fixtures, not live verification)', (
     });
     a.push({ candidates: [{ finishReason: 'STOP' }] });
     const r = a.finish();
-    expect(r.usage).toEqual({ input: 30, output: 20 });
+    expect(r.usage).toMatchObject({ input: 30, output: 20, total:50, reasoning:8 });
     expect(r.calls[0].arguments).toEqual({ section: 'summary' });
     const p = providerPayload({
       ...req('gemini'),
@@ -77,7 +77,7 @@ describe('real provider protocol contracts (fixtures, not live verification)', (
       role: 'user',
       content: [{ type: 'tool_result', tool_use_id: 'a1', content: '{"ok":true}' }],
     });
-    expect(r.usage).toEqual({ input: 24, output: 10 });
+    expect(r.usage).toMatchObject({ input: 24, output: 10, total:34 });
   });
   for (const provider of ['openai', 'xai'] as const)
     it(`${provider} reconstructs fragmented tool calls and usage`, () => {

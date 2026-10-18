@@ -25,7 +25,14 @@ export interface ToolCall {
 export interface TurnResult {
   text: string;
   calls: ToolCall[];
-  usage: { input: number; output: number };
+  usage: import('./usage').NormalizedUsage;
+  metadata?: {
+    requestId: string;
+    responseId?: string;
+    events: number;
+    duplicateCalls: number;
+    finishReason?: string;
+  };
   native: unknown;
 }
 export interface ChatTurn {
@@ -64,7 +71,12 @@ export interface DesktopBridge {
   providerTurn(input: ProviderRequest): Promise<TurnResult>;
   build(input: { project: Project; requestId: string; simulate: boolean }): Promise<RunResult>;
   cancel(requestId: string): Promise<void>;
-  capabilities(): Promise<{ desktop: boolean; arduino: boolean; simavr: boolean }>;
+  capabilities(): Promise<{
+    desktop: boolean;
+    arduino: boolean;
+    simavr: boolean;
+    evaluation?: boolean;
+  }>;
   onProviderText(callback: (event: { requestId: string; text: string }) => void): () => void;
 }
 declare global {
@@ -73,7 +85,7 @@ declare global {
   }
 }
 export const providerDefaults: Record<ProviderId, { name: string; model: string }> = {
-  gemini: { name: 'Google Gemini', model: 'gemini-2.5-flash' },
+  gemini: { name: 'Google Gemini', model: 'gemini-3.5-flash-lite' },
   openai: { name: 'OpenAI', model: 'gpt-4.1-mini' },
   anthropic: { name: 'Anthropic Claude', model: 'claude-sonnet-4-5' },
   xai: { name: 'xAI Grok', model: 'grok-4-fast-non-reasoning' },

@@ -76,14 +76,14 @@ describe('zero-call local participation and bounded active tasks', () => {
     for (let i = 0; i < limits.tools; i++) tools.tool();
     expect(() => tools.tool()).toThrow('Tool limit');
     const tokens = new TaskBudget();
-    tokens.usage(24000, 0);
+    tokens.usage(limits.reportedTokens, 0);
     expect(() => tokens.request()).toThrow('token threshold');
     const cancelled = new TaskBudget();
     cancelled.cancel();
     expect(() => cancelled.request()).toThrow('cancelled');
     let now = 0;
     const time = new TaskBudget(() => now);
-    now = 90001;
+    now = limits.durationMs+1;
     expect(() => time.tool()).toThrow('time limit');
   });
 });

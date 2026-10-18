@@ -13,7 +13,7 @@ test('native macOS bundle launches from another working directory and runs bundl
     const page = await app.firstWindow();
     await expect(page.getByText('No API key connected.', { exact: true })).toBeVisible();
     const capabilities = await page.evaluate(() => window.trace!.capabilities());
-    expect(capabilities).toEqual({ desktop: true, arduino: true, simavr: true });
+    expect(capabilities).toEqual({ desktop: true, arduino: true, simavr: true, evaluation: false });
     const devices = await page.evaluate(() => window.trace!.hardware.discover());
     expect(Array.isArray(devices.ports)).toBe(true);
     expect(devices.serial.state).toBe('disconnected');

@@ -40,8 +40,8 @@ export function installMenu(window: () => BrowserWindow) {
     {
       label: 'Edit',
       submenu: [
-        action('Undo Project Change', 'undo', 'CmdOrCtrl+Z'),
-        action('Redo Project Change', 'redo', 'CmdOrCtrl+Shift+Z'),
+        action('Undo', 'undo', 'CmdOrCtrl+Z'),
+        action('Redo', 'redo', 'CmdOrCtrl+Shift+Z'),
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },
@@ -66,6 +66,9 @@ export function installMenu(window: () => BrowserWindow) {
         action('Verify', 'verify', 'CmdOrCtrl+R'),
         action('Simulate Mega Firmware', 'simulate'),
         action('Reset Indicator Example', 'example'),
+        { type: 'separator' },
+        action('Undo Project Change', 'undo-project'),
+        action('Redo Project Change', 'redo-project'),
       ],
     },
     {

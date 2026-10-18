@@ -5,24 +5,55 @@ import { HardwareRequestInputSchema, ObserveSchema } from '../src/services/hardw
 import { join } from 'node:path';
 import { readFile, writeFile, stat, mkdir } from 'node:fs/promises';
 import { validateProject, parseProject, serializeProject } from '../src/domain/project';
-import { listConnections, setConnection, keyFor } from './credentials';
+import {
+  listConnections,
+  setConnection,
+  keyFor,
+  useReadOnlyEvaluationCredentials,
+} from './credentials';
 import { callProvider, ProviderSchema, ModelSchema } from './providers';
 import { z } from 'zod';
 import { runToolchain, toolchainCapabilities, configureToolRoot } from './toolchain';
 
 let win: BrowserWindow;
 const tasks = new Map<string, AbortController>();
+const usedProviderRequests = new Set<string>();
 const hardware = new HardwareService((snapshot) => {
   if (win && !win.isDestroyed()) win.webContents.send('hardware:snapshot', snapshot);
 });
 if (process.env.TRACE_TEST) (globalThis as any).__traceTestHardware = hardware;
 app.setName('Trace');
-if (process.env.TRACE_TEST)
+if (process.env.TRACE_EVALUATION && !process.env.TRACE_EVALUATION_FIXTURE) {
+  app.commandLine.removeSwitch('use-mock-keychain');
+  app.commandLine.removeSwitch('password-store');
+}
+if (process.env.TRACE_EVALUATION && !process.env.TRACE_EVALUATION_FIXTURE)
+  useReadOnlyEvaluationCredentials(join(app.getPath('userData'), 'connections.v1.json'));
+if (process.env.TRACE_TEST || process.env.TRACE_EVALUATION)
   app.setPath('userData', join(app.getPath('temp'), `trace-test-${process.pid}`));
 function handle(channel: string, fn: (arg: any) => unknown) {
   ipcMain.handle(channel, (event, arg) => {
     if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame)
       throw new Error('Untrusted IPC sender');
+    if (
+      process.env.TRACE_EVALUATION &&
+      [
+        'hardware:request',
+        'hardware:approve',
+        'project:save',
+        'project:open',
+        'project:export',
+      ].includes(channel)
+    )
+      throw new Error(
+        'Physical operations and user files are disabled during software evaluation.',
+      );
+    if (
+      process.env.TRACE_EVALUATION &&
+      !process.env.TRACE_EVALUATION_FIXTURE &&
+      channel === 'connections:set'
+    )
+      throw new Error('Evaluation credentials are read-only.');
     return fn(arg);
   });
 }
@@ -32,7 +63,7 @@ function createWindow() {
     height: 980,
     minWidth: 960,
     minHeight: 640,
-    show: !process.env.TRACE_TEST,
+    show: !process.env.TRACE_TEST && !process.env.TRACE_EVALUATION,
     title: 'Trace',
     backgroundColor: '#141719',
     titleBarStyle: 'default',
@@ -59,7 +90,19 @@ function createWindow() {
   if (process.env.TRACE_DEV_URL) void win.loadURL(process.env.TRACE_DEV_URL);
   else void win.loadFile(join(__dirname, '../dist/index.html'));
 }
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  if (process.env.TRACE_SET_GEMINI_MODEL) {
+    try {
+      const model = ModelSchema.parse(process.env.TRACE_SET_GEMINI_MODEL);
+      await setConnection({ provider: 'gemini', model });
+      console.log(`Gemini model saved: ${model}`);
+      app.quit();
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : 'Model configuration failed');
+      app.exit(1);
+    }
+    return;
+  }
   configureToolRoot(
     app.isPackaged
       ? join(process.resourcesPath, 'trace-tools')
@@ -171,6 +214,9 @@ app.whenReady().then(() => {
     if (tasks.size >= 2) throw new Error('Task concurrency limit reached');
     const controller = new AbortController();
     const id = z.string().uuid().parse(input?.requestId);
+    if (usedProviderRequests.has(id))
+      throw new Error('Provider request ID already used; do not replay a response.');
+    usedProviderRequests.add(id);
     tasks.set(id, controller);
     try {
       return await callProvider(
@@ -203,7 +249,11 @@ app.whenReady().then(() => {
       tasks.delete(a.requestId);
     }
   });
-  handle('capabilities', async () => ({ desktop: true, ...(await toolchainCapabilities()) }));
+  handle('capabilities', async () => ({
+    desktop: true,
+    evaluation: !!process.env.TRACE_EVALUATION,
+    ...(await toolchainCapabilities()),
+  }));
 });
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

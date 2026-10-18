@@ -1,4 +1,10 @@
 import { create } from 'zustand';
+import {
+  AgentLimitsSchema,
+  migrateAgentSettings,
+  agentSettingsStorageKey,
+  type AgentLimits,
+} from '../services/agentSettings';
 import type { Project, View, Endpoint } from '../domain/schema';
 import {
   emptyHistory,
@@ -26,14 +32,26 @@ export interface Message {
   text: string;
   objectIds?: string[];
   details?: string;
+  taskId?: string;
+  requestId?: string;
+  toolCallId?: string;
+  toolName?: string;
+  kind?: 'tool' | 'status' | 'change';
+  status?: 'running' | 'completed' | 'failed' | 'pending';
+  startedAt?: number;
+  finishedAt?: number;
 }
 export interface Proposal {
   transaction: Transaction;
   origin: 'agent' | 'rule';
 }
 interface State {
-  agentDraft:string;
-  dismissedSuggestions:string[];
+  agentLimits: AgentLimits;
+  agentTrace: Record<string, unknown>[];
+  agentResumeAvailable: boolean;
+  pendingDiagnostic: { id: string; action: 'explain' | 'fix' } | null;
+  agentDraft: string;
+  dismissedSuggestions: string[];
   workspace: 'prototype' | 'debug';
   project: Project;
   history: History;
@@ -51,7 +69,7 @@ interface State {
   building: boolean;
   buildRequestId: string | null;
   buildOrigin: 'human' | 'agent';
-  capabilities: { desktop: boolean; arduino: boolean; simavr: boolean };
+  capabilities: { desktop: boolean; arduino: boolean; simavr: boolean; evaluation?: boolean };
   messages: Message[];
   agentBusy: boolean;
   agentStatus: string;
@@ -116,7 +134,7 @@ function loadSession(): Partial<State> {
       participation: ['request', 'suggest', 'proactive'].includes(raw.participation)
         ? raw.participation
         : 'suggest',
-      policy: raw.policy === 'apply' ? 'apply' : 'preview',
+      policy: raw.policy === 'preview' ? 'preview' : 'apply',
       provider: ['gemini', 'openai', 'anthropic', 'xai'].includes(raw.provider)
         ? raw.provider
         : 'gemini',
@@ -131,10 +149,25 @@ try {
   localStorage.setItem('trace.draft.v1', serializeProject(initial));
 } catch {}
 const session = loadSession();
+let savedLimits: unknown;
+try {
+  savedLimits = JSON.parse(
+    localStorage.getItem(agentSettingsStorageKey) ??
+      localStorage.getItem('trace.agent-limits.v1') ??
+      'null',
+  );
+} catch {}
+const agentLimits = migrateAgentSettings(savedLimits);
+localStorage.setItem(agentSettingsStorageKey, JSON.stringify({ version: 2, limits: agentLimits }));
 let lastEditTime = 0;
 let checkTimer: ReturnType<typeof setTimeout> | undefined;
 export const useWorkspace = create<State>((set, get) => ({
-  agentDraft:'',dismissedSuggestions:[],
+  agentDraft: '',
+  dismissedSuggestions: [],
+  agentLimits,
+  agentTrace: [],
+  agentResumeAvailable: false,
+  pendingDiagnostic: null,
   workspace: 'prototype',
   project: initial,
   history: emptyHistory(),
@@ -158,10 +191,10 @@ export const useWorkspace = create<State>((set, get) => ({
   agentStatus: '',
   connections: [],
   provider: session.provider ?? 'gemini',
-  model: 'gemini-2.5-flash',
+  model: 'gemini-3.5-flash-lite',
   proposal: null,
   participation: session.participation ?? 'suggest',
-  policy: session.policy ?? 'preview',
+  policy: session.policy ?? 'apply',
   requests: 0,
   toolCalls: 0,
   tokens: 0,
@@ -337,6 +370,11 @@ export const useWorkspace = create<State>((set, get) => ({
 }));
 useWorkspace.subscribe((s, previous) => {
   try {
+    if (s.agentLimits !== previous.agentLimits)
+      localStorage.setItem(
+        agentSettingsStorageKey,
+        JSON.stringify({ version: 2, limits: s.agentLimits }),
+      );
     if (s.project !== previous.project)
       localStorage.setItem('trace.draft.v1', serializeProject(s.project));
     localStorage.setItem(
@@ -356,7 +394,54 @@ useWorkspace.subscribe((s, previous) => {
 if (window.trace) {
   void window.trace
     .capabilities()
-    .then((capabilities) => useWorkspace.setState({ capabilities }))
+    .then((capabilities) => {
+      useWorkspace.setState({ capabilities });
+      if (capabilities.evaluation)
+        (window as any).traceEvaluation = {
+          reset(project: Project) {
+            const p = parseProject(JSON.stringify(project));
+            useWorkspace.getState().replaceProject(p, 'Evaluation seed');
+            useWorkspace.setState({
+              messages: [],
+              policy: 'apply',
+              provider: 'gemini',
+              requests: 0,
+              toolCalls: 0,
+              tokens: 0,
+              agentTrace: [],
+            });
+          },
+          snapshot() {
+            const s = useWorkspace.getState();
+            return {
+              project: s.project,
+              messages: s.messages,
+              result: s.result,
+              busy: s.agentBusy,
+              requests: s.requests,
+              tools: s.toolCalls,
+              tokens: s.tokens,
+              trace: s.agentTrace,
+              limits: s.agentLimits,
+              connections: s.connections,
+              model: s.model,
+              resumeAvailable: s.agentResumeAvailable,
+            };
+          },
+          configure(options: Partial<State>) {
+            const allowed = {
+              ...(options.model ? { model: options.model } : {}),
+              ...(options.agentLimits
+                ? { agentLimits: AgentLimitsSchema.parse(options.agentLimits) }
+                : {}),
+            };
+            useWorkspace.setState(allowed);
+          },
+          start(goal: string) {
+            window.dispatchEvent(new CustomEvent('trace:agent-request', { detail: goal }));
+          },
+        };
+    })
     .catch(() => {});
   void window.trace
     .connections()

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 export const Id = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/);
-export const EndpointSchema = z.object({ componentId: Id, terminalId: Id }).strict();
+export const TerminalId = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,95}$/);
+export const EndpointSchema = z.object({ componentId: Id, terminalId: TerminalId }).strict();
 export type Endpoint = z.infer<typeof EndpointSchema>;
 export const ComponentSchema = z
   .object({
@@ -49,7 +50,7 @@ export const BindingSchema = z
   .object({
     id: Id,
     boardId: Id,
-    terminalId: Id,
+    terminalId: TerminalId,
     target: EndpointSchema,
     fileId: Id,
     symbol: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
@@ -64,7 +65,7 @@ export const TelemetryMappingSchema = z
     parser: z.enum(['json', 'keyvalue']),
     field: z.string().min(1).max(80),
     componentId: Id.optional(),
-    terminalId: Id.optional(),
+    terminalId: TerminalId.optional(),
     units: z.string().max(24).default(''),
     meaning: z.enum(['measurement', 'command', 'state', 'count', 'raw']).default('raw'),
     deviceTimestampField: z.string().max(80).optional(),

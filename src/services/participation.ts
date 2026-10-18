@@ -1,41 +1,47 @@
 export type ParticipationMode = 'request' | 'suggest' | 'proactive';
-export const limits = {
-  requests: 6,
-  tools: 20,
-  reportedTokens: 24000,
-  outputTokens: 2048,
-  durationMs: 90000,
-  cooldownMs: 60000,
-} as const;
+import { defaultLimits, type AgentLimits } from './agentSettings';
+export const limits = { ...defaultLimits, cooldownMs: 60000 };
 export class TaskBudget {
   requests = 0;
   tools = 0;
   tokens = 0;
   cancelled = false;
   started: number;
-  constructor(private now: () => number = Date.now) {
-    this.started = now();
+  readonly limits: AgentLimits;
+  private now: () => number;
+  private responses = new Set<string>();
+  constructor(nowOrLimits: (() => number) | AgentLimits = Date.now, now: () => number = Date.now) {
+    this.now = typeof nowOrLimits === 'function' ? nowOrLimits : now;
+    this.limits = typeof nowOrLimits === 'function' ? { ...defaultLimits } : { ...nowOrLimits };
+    this.started = this.now();
   }
   check() {
+    this.checkTool();
+    if (this.requests >= this.limits.requests) throw new Error('Model request limit reached');
+  }
+  private checkTool() {
     if (this.cancelled) throw new Error('Task cancelled');
-    if (this.now() - this.started >= limits.durationMs) throw new Error('Task time limit reached');
-    if (this.requests >= limits.requests) throw new Error('Model request limit reached');
-    if (this.tools >= limits.tools) throw new Error('Tool limit reached');
-    if (this.tokens >= limits.reportedTokens)
-      throw new Error('Reported token threshold reached; task paused');
+    if (this.now() - this.started >= this.limits.durationMs)
+      throw new Error('Task time limit reached');
+    if (this.tools >= this.limits.tools) throw new Error('Tool limit reached');
+    if (this.tokens >= this.limits.reportedTokens)
+      throw new Error('Reported token threshold reached');
   }
   request() {
     this.check();
     this.requests++;
   }
   tool() {
-    if (this.cancelled) throw new Error('Task cancelled');
-    if (this.now() - this.started >= limits.durationMs) throw new Error('Task time limit reached');
-    if (this.tools >= limits.tools) throw new Error('Tool limit reached');
+    this.checkTool();
     this.tools++;
   }
-  usage(input: number, output: number) {
-    this.tokens += Math.max(0, input) + Math.max(0, output);
+  usage(input: number | null, output: number | null, responseId?: string, total?: number | null) {
+    if (responseId && this.responses.has(responseId)) return false;
+    if (responseId) this.responses.add(responseId);
+    const valid = (v: number | null | undefined) =>
+      typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : 0;
+    this.tokens += total != null ? valid(total) : valid(input) + valid(output);
+    return true;
   }
   cancel() {
     this.cancelled = true;

@@ -1412,3 +1412,145 @@ body,
 .composer {
   margin-bottom: 10px;
 }
+
+/* One quiet activity feed per task; actual answers and changes remain chat messages. */
+.activity-group {
+  padding-top: 12px;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.activity-group > details > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  padding: 4px 0;
+  list-style: none;
+}
+.activity-group > details > summary::before {
+  content: '›';
+  width: 8px;
+}
+.activity-group > details[open] > summary::before {
+  content: '⌄';
+}
+.activity-steps {
+  margin: 6px 0 0;
+  padding: 0 0 0 16px;
+  max-height: 320px;
+  overflow: auto;
+}
+.activity-steps li {
+  padding: 5px 0 8px 2px;
+}
+.activity-steps p {
+  margin: 3px 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.activity-steps pre {
+  margin-top: 4px;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 10px;
+}
+.activity-steps small {
+  color: var(--faint);
+  font-size: 10px;
+}
+.activity-error {
+  margin: 4px 0;
+  color: var(--danger);
+  line-height: 1.5;
+}
+.message.activity.status,
+.message.activity.change {
+  border: 0;
+  padding: 12px 0 0;
+}
+.agent-resume {
+  padding: 6px 12px;
+}
+.agent-resume button {
+  font-size: 11px;
+  color: var(--accent);
+}
+.diagnostic-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagnostic-heading > .diagnostic-select {
+  flex: 1;
+  min-width: 0;
+}
+.diagnostic-agent {
+  position: relative;
+  flex: 0 0 auto;
+  align-self: start;
+}
+.diagnostic-agent-trigger {
+  color: var(--muted);
+  padding: 4px;
+}
+.diagnostic-agent-trigger:hover,
+.diagnostic-agent-trigger[aria-expanded='true'] {
+  color: var(--accent);
+}
+.diagnostic-agent-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 30;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 95px;
+  padding: 3px;
+}
+.diagnostic-agent-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+.issue-popover-row {
+  display: flex;
+  align-items: start;
+  gap: 6px;
+  padding: 3px 0;
+}
+.issue-popover-row > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.issue-popover-row strong {
+  font-weight: 500;
+  font-size: 11px;
+}
+.issue-popover-row p {
+  margin: 3px 0 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.part-issue-message {
+  width: 280px;
+  max-height: 280px;
+  overflow: visible;
+}
+.connection-issue-popover {
+  overflow: visible;
+}
+.connection-issue-popover .part-issue-message {
+  position: static;
+}
+.limit-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-block: var(--space-3);
+}

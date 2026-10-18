@@ -10,6 +10,7 @@ import {
 import { useWorkspace } from './store';
 import { buildKey, circuitKey } from '../domain/semantics';
 import { Badge, IconButton } from './primitives';
+import { DiagnosticAgent } from './DiagnosticAgent';
 export function Output() {
   const s = useWorkspace();
   return (
@@ -54,20 +55,25 @@ export function Output() {
           <div className="diagnostics">
             {s.diagnostics.map((d) => (
               <div className={`diagnostic ${d.severity}`} key={d.id}>
-                <button
-                  className="diagnostic-select"
-                  onClick={() => s.select({ kind: 'diagnostic', id: d.id, objectIds: d.objectIds })}
-                >
-                  {d.severity === 'error' ? (
-                    <AlertTriangle size={14} />
-                  ) : d.severity === 'warning' ? (
-                    <AlertTriangle size={14} />
-                  ) : (
-                    <Info size={14} />
-                  )}
-                  <strong>{d.title}</strong>
-                  <Badge>{d.severity}</Badge>
-                </button>
+                <div className="diagnostic-heading">
+                  <button
+                    className="diagnostic-select"
+                    onClick={() =>
+                      s.select({ kind: 'diagnostic', id: d.id, objectIds: d.objectIds })
+                    }
+                  >
+                    {d.severity === 'error' ? (
+                      <AlertTriangle size={14} />
+                    ) : d.severity === 'warning' ? (
+                      <AlertTriangle size={14} />
+                    ) : (
+                      <Info size={14} />
+                    )}
+                    <strong>{d.title}</strong>
+                    <Badge>{d.severity}</Badge>
+                  </button>
+                  <DiagnosticAgent diagnosticId={d.id} />
+                </div>
                 <div className="diagnostic-detail">
                   <p>{d.detail}</p>
                   {d.fix && (

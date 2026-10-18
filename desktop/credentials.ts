@@ -10,7 +10,12 @@ const ConfigSchema = z.record(
 );
 type Config = z.infer<typeof ConfigSchema>;
 let config: Config | undefined;
-const path = () => join(app.getPath('userData'), 'connections.v1.json');
+let evaluationSource: string | undefined;
+export function useReadOnlyEvaluationCredentials(source: string) {
+  evaluationSource = source;
+  config = undefined;
+}
+const path = () => evaluationSource ?? join(app.getPath('userData'), 'connections.v1.json');
 async function read() {
   if (config) return config;
   try {
@@ -33,6 +38,8 @@ export async function listConnections(): Promise<Connection[]> {
   }));
 }
 export async function setConnection(input: unknown) {
+  if (evaluationSource)
+    throw new Error('Evaluation credentials are read-only. Configure connections in Trace.');
   const a = z
     .object({
       provider: ProviderSchema,

@@ -183,6 +183,7 @@ test('Gemini tool loop with deterministic protocol fixtures, visible proposal an
     await page.getByLabel('Provider API key', { exact: true }).fill('FIXTURE_NOT_A_REAL_KEY');
     await page.getByRole('button', { name: 'Save connection' }).click();
     await expect(page.getByText('Key stored')).toBeVisible();
+    await page.getByLabel('Change application policy').selectOption('preview');
     await page.getByRole('button', { name: 'Close settings' }).click();
     await app.evaluate(() => {
       let n = 0;
@@ -220,7 +221,7 @@ test('Gemini tool loop with deterministic protocol fixtures, visible proposal an
               },
             },
           ];
-        } else parts = [{ text: 'The component label is ready for review. [[led]]' }];
+        } else parts = [{ text: 'The component label is applied. [[led]]' }];
         return new Response(
           `data: ${JSON.stringify({ candidates: [{ content: { role: 'model', parts }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 15 } })}\n\n`,
           { headers: { 'content-type': 'text/event-stream' } },
@@ -232,7 +233,8 @@ test('Gemini tool loop with deterministic protocol fixtures, visible proposal an
       .fill('Inspect the real shared circuit and label the LED.');
     await page.getByRole('button', { name: 'Send request', exact: true }).click();
     await expect(page.getByText('Proposed change', { exact: true })).toBeVisible();
-    await expect(page.getByText('The component label is ready for review. led')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Resume task', exact: true })).toBeVisible();
+    expect((await app.evaluate(() => (globalThis as any).__fixtureRequests)).length).toBe(2);
     expect((await project(page)).components.find((c: any) => c.id === 'led').config.label).toBe(
       'Status indicator',
     );
@@ -242,6 +244,8 @@ test('Gemini tool loop with deterministic protocol fixtures, visible proposal an
         async () => (await project(page)).components.find((c: any) => c.id === 'led').config.label,
       )
       .toBe('Agent updated indicator');
+    await page.getByRole('button', { name: 'Resume task', exact: true }).click();
+    await expect(page.getByText('The component label is applied. led')).toBeVisible();
     const requests = await app.evaluate(() => (globalThis as any).__fixtureRequests);
     expect(requests).toHaveLength(3);
     expect(JSON.stringify(requests)).not.toContain('FIXTURE_NOT_A_REAL_KEY');

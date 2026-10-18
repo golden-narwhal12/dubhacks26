@@ -14,6 +14,8 @@ Trace is a local macOS circuit and firmware workbench. Read [product](docs/produ
 - `npm run setup:simavr` builds the pinned external Mega simulator locally.
 - `npm run test:toolchain` verifies installed Mega/ESP32 compilation, MCU execution and confinement.
 - `npm run package` creates a local macOS app; `npm run test:package` verifies it from another working directory.
+- `npm run evaluate:fixtures` runs isolated same-runtime agent fixtures with real Mega compilation.
+- `npm run evaluate:gemini -- --cases led,servo-encoder --repeat 1` runs a bounded paid batch with locally configured Gemini; software evaluation forbids hardware operations and user project access. See [results](docs/evaluation.md).
 - `npm run format` formats source/docs with the shared Prettier configuration.
 
 ## Invariants
@@ -23,6 +25,7 @@ Trace is a local macOS circuit and firmware workbench. Read [product](docs/produ
 - Terminal IDs belong to versioned part packages. Artwork and labels never establish electrical identity.
 - Evidence, recommended conditions, absolute maxima, and unknowns must remain distinct. Never report universal electrical correctness.
 - Keep credentials in main-process encrypted local storage; never send stored keys to the renderer, projects, model context, logs, or Git.
+- In-app system instructions live in `src/services/instructions.ts`; update instruction/tool versions for changed contracts and retain evaluation provenance. Task resume preserves cumulative budgets and must not replay completed effects.
 - No inference for selections, typing, movement, layout, checks, or suggestion presentation. Model calls require an eligible task and enforced budgets.
 - No arbitrary model-generated shell commands. Build processes use fixed executables, validated arguments, bounded output, timeout, and cancellation.
 - Compiler/simulator children must retain macOS file/network confinement; never silently fall back to unrestricted execution. Keep allowed roots fixed to required system/tool/package data and scratch. No arbitrary imported/user library directories.

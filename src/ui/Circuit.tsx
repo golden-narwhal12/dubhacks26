@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useEffect } from 'react';
+import { useCallback, useMemo, useState, useEffect, useRef, useId } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -33,9 +33,11 @@ import {
   Scan,
 } from 'lucide-react';
 import { partById, searchParts } from '../parts/catalog';
+import { illustrationSize } from '../parts/illustration';
 import type { Part, Terminal, Component, View } from '../domain/schema';
 import { useWorkspace, selectedIds, uid } from './store';
 import { Badge, IconButton } from './primitives';
+import { DiagnosticAgent } from './DiagnosticAgent';
 import { deriveNets, netFor } from '../domain/topology';
 import { routeWires, routePath, routeBounds, type WireRoute } from './routing';
 
@@ -151,7 +153,7 @@ function baseGeometry(
   return { width: 704, height: 310, pins };
 }
 function geometry(part: Part, view: View, rotation = 0) {
-  let g = baseGeometry(part, view);
+  let g = { ...baseGeometry(part, view), ...illustrationSize(part) };
   const sides = [Position.Top, Position.Right, Position.Bottom, Position.Left];
   for (let i = 0; i < rotation / 90; i++) {
     const h = g.height;
@@ -455,15 +457,47 @@ type PartNode = Node<
   { component: Component; part: Part; view: View; highlighted: boolean; rotation: number },
   'part'
 >;
+/** Observe outside gestures without consuming the selection, drag, pan or connection. */
+function useIssuePopover(hasIssues: boolean) {
+  const [open, setOpen] = useState(false);
+  const owner = useId();
+  const trigger = useRef<HTMLElement | SVGElement | null>(null);
+  const settings = useWorkspace((state) => state.settings);
+  useEffect(() => {
+    if (!hasIssues || settings) setOpen(false);
+  }, [hasIssues, settings]);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => {
+      const element = event.target instanceof Element ? event.target : null;
+      if (element?.closest('[data-issue-owner]')?.getAttribute('data-issue-owner') !== owner)
+        setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || document.querySelector('dialog:modal')) return;
+      // An inner action menu handles its own Escape first.
+      if ((event.target as Element)?.closest('[role="menu"]')) return;
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [open, owner]);
+  return { open, setOpen, owner, trigger };
+}
 function PartNodeView({ data }: NodeProps<PartNode>) {
   const select = useWorkspace((s) => s.select),
     selection = useWorkspace((s) => s.selection);
   const { component: c, part, view, rotation } = data;
   const diagnostics = useWorkspace((s) => s.diagnostics);
-  const [showIssue, setShowIssue] = useState(false);
   const issues = diagnostics.filter(
     (d) => d.objectIds.includes(c.id) && (d.severity === 'error' || d.severity === 'warning'),
   );
+  const issuePopover = useIssuePopover(issues.length > 0);
   const update = useUpdateNodeInternals();
   useEffect(() => update(c.id), [rotation, view, c.id, update]);
   const g = geometry(part, view, rotation),
@@ -485,18 +519,36 @@ function PartNodeView({ data }: NodeProps<PartNode>) {
         <button
           className={`part-issue ${issues.some((d) => d.severity === 'error') ? 'error' : 'warning'}`}
           aria-label={`${c.ref} issues`}
+          aria-expanded={issuePopover.open}
+          aria-haspopup="dialog"
+          data-issue-owner={issuePopover.owner}
+          ref={(element) => {
+            issuePopover.trigger.current = element;
+          }}
           onClick={(e) => {
             e.stopPropagation();
-            setShowIssue(!showIssue);
+            issuePopover.setOpen(!issuePopover.open);
           }}
         >
           <CornerUpRight size={12} />
         </button>
       )}
-      {showIssue && (
-        <div className="part-issue-message nodrag">
+      {issuePopover.open && (
+        <div
+          className="part-issue-message nodrag nopan"
+          role="dialog"
+          aria-label={`${c.ref} diagnostics`}
+          data-issue-owner={issuePopover.owner}
+          onClick={(event) => event.stopPropagation()}
+        >
           {issues.map((d) => (
-            <p key={d.id}>{d.title}</p>
+            <div className="issue-popover-row" key={d.id}>
+              <div>
+                <strong>{d.title}</strong>
+                <p>{d.detail}</p>
+              </div>
+              <DiagnosticAgent diagnosticId={d.id} />
+            </div>
           ))}
         </div>
       )}
@@ -563,11 +615,11 @@ function PartNodeView({ data }: NodeProps<PartNode>) {
   );
 }
 function RoutedEdge({ id, data, selected }: EdgeProps<Edge<{ route: WireRoute; color: string }>>) {
-  const [hover, setHover] = useState(false),
-    [showIssue, setShowIssue] = useState(false);
+  const [hover, setHover] = useState(false);
   const issues = useWorkspace((s) => s.diagnostics).filter(
-    (d) => d.objectIds.includes(id) && d.severity === 'error',
+    (d) => d.objectIds.includes(id) && (d.severity === 'error' || d.severity === 'warning'),
   );
+  const issuePopover = useIssuePopover(issues.length > 0);
   const r = data?.route;
   if (!r) return null;
   const path = routePath(r.points),
@@ -624,15 +676,21 @@ function RoutedEdge({ id, data, selected }: EdgeProps<Edge<{ route: WireRoute; c
         <g
           role="button"
           tabIndex={0}
-          aria-label="Connection errors"
+          aria-label="Connection issues"
+          aria-expanded={issuePopover.open}
+          aria-haspopup="dialog"
+          data-issue-owner={issuePopover.owner}
+          ref={(element) => {
+            issuePopover.trigger.current = element;
+          }}
           onClick={(e) => {
             e.stopPropagation();
-            setShowIssue(!showIssue);
+            issuePopover.setOpen(!issuePopover.open);
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
+            if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
               e.preventDefault();
-              setShowIssue(!showIssue);
+              issuePopover.setOpen(!issuePopover.open);
             }
           }}
           transform={`translate(${r.points[Math.floor(r.points.length / 2)].x},${r.points[Math.floor(r.points.length / 2)].y - 11})`}
@@ -641,11 +699,29 @@ function RoutedEdge({ id, data, selected }: EdgeProps<Edge<{ route: WireRoute; c
           <text textAnchor="middle" y="4" fontSize="12" fill="var(--danger)">
             ↪
           </text>
-          {showIssue && (
-            <foreignObject x="12" y="-12" width="220" height="90">
-              <div className="part-issue-message">
+          {issuePopover.open && (
+            <foreignObject
+              x="12"
+              y="-12"
+              width="300"
+              height="260"
+              className="connection-issue-popover"
+            >
+              <div
+                className="part-issue-message nodrag nopan"
+                role="dialog"
+                aria-label="Connection diagnostics"
+                data-issue-owner={issuePopover.owner}
+                onClick={(event) => event.stopPropagation()}
+              >
                 {issues.map((d) => (
-                  <p key={d.id}>{d.title}</p>
+                  <div className="issue-popover-row" key={d.id}>
+                    <div>
+                      <strong>{d.title}</strong>
+                      <p>{d.detail}</p>
+                    </div>
+                    <DiagnosticAgent diagnosticId={d.id} />
+                  </div>
                 ))}
               </div>
             </foreignObject>
@@ -695,6 +771,13 @@ function CircuitCanvas() {
   const [dragNodes, setDragNodes] = useState<PartNode[] | null>(null);
   const [pan, setPan] = useState(false);
   const [needsFit, setNeedsFit] = useState(false);
+  const previousContent = useRef({ id: project.id, count: project.components.length });
+  useEffect(() => {
+    const previous = previousContent.current;
+    if (project.components.length && (previous.id !== project.id || previous.count === 0))
+      setNeedsFit(true);
+    previousContent.current = { id: project.id, count: project.components.length };
+  }, [project.id, project.components.length]);
   const ids = selectedIds(selection);
   const nodes = useMemo<PartNode[]>(
     () =>
@@ -1262,7 +1345,11 @@ function ComponentProperties({ component: c, part }: { component: Component; par
               return;
             }
             setError('');
-            if (v !== c.config[field])
+            if (
+              v !==
+              useWorkspace.getState().project.components.find((current) => current.id === c.id)
+                ?.config[field]
+            )
               apply('Change resistance', [
                 { type: 'configureComponent', id: c.id, config: { [field]: v } },
               ]);

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Modal } from './Modal';
+import { AgentLimitsSchema, type AgentLimits } from '../services/agentSettings';
 import { X, KeyRound, Check, Trash2 } from 'lucide-react';
 import { useWorkspace } from './store';
 import { providerDefaults, type ProviderId } from '../services/bridge';
@@ -143,6 +144,19 @@ export function Settings() {
           </div>
         </div>
         <div className="participation-settings stack">
+          {s.pendingDiagnostic && (
+            <button
+              className="secondary"
+              disabled={!s.connections.find((c) => c.provider === s.provider)?.configured}
+              onClick={() => {
+                const detail = s.pendingDiagnostic;
+                useWorkspace.setState({ settings: false });
+                window.dispatchEvent(new CustomEvent('trace:diagnostic-request', { detail }));
+              }}
+            >
+              Continue {s.pendingDiagnostic.action === 'explain' ? 'explanation' : 'fix'}
+            </button>
+          )}
           <h3>Participation</h3>
           <div className="row">
             <select
@@ -167,13 +181,40 @@ export function Settings() {
           </div>
           <details>
             <summary>Task limits and supported triggers</summary>
+            <div className="limit-fields">
+              {(
+                [
+                  ['reportedTokens', 'Reported token threshold', 1],
+                  ['requests', 'Model requests', 1],
+                  ['tools', 'Tool calls', 1],
+                  ['durationMs', 'Time limit (seconds)', 1000],
+                  ['outputTokens', 'Response output limit', 1],
+                ] as [keyof AgentLimits, string, number][]
+              ).map(([name, label, scale]) => (
+                <label className="field" key={name}>
+                  {label}
+                  <input
+                    aria-label={label}
+                    type="number"
+                    min={1}
+                    value={s.agentLimits[name] / scale}
+                    onChange={(e) => {
+                      const next = { ...s.agentLimits, [name]: Number(e.target.value) * scale };
+                      if (AgentLimitsSchema.safeParse(next).success)
+                        useWorkspace.setState({ agentLimits: next });
+                    }}
+                  />
+                </label>
+              ))}
+            </div>
+            <small>
+              Maximum per task, not a spending cap or context window. Reported usage is checked
+              after each response; further tools and requests pause at the threshold. Resume uses
+              current settings.
+            </small>
             <p>
-              Each task: up to 6 model requests, 20 tools, a stop threshold of 24,000
-              provider-reported tokens, 90 seconds. A response is capped at 2,048 output tokens.
-              Limits pause the task; they do not establish a financial cap. Reported usage is
-              checked after each response and may cross the threshold in that response. Failed-build
-              trigger: 60-second cooldown; duplicate revision/issue suppressed. Selection, typing,
-              wiring, layout and idle time never invoke a model. No automatic provider fallback.
+              Proactive only continues a requested task after a failed build; 60-second cooldown and
+              issue deduplication apply. Editing and telemetry make no model calls.
             </p>
             <p>
               Usage: {s.requests} requests · {s.toolCalls} tools · {s.tokens.toLocaleString()}{' '}
