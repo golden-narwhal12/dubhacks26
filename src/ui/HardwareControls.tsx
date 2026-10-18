@@ -263,7 +263,7 @@ export function HardwareDialogs() {
               previousUpload.device.identity === request.device?.identity &&
               previousUpload.artifact.files.length > 0 && (
                 <details open>
-                  <summary>Changes since last Trace upload</summary>
+                  <summary>Changes since last mudroom upload</summary>
                   <ChangeReview
                     project={{
                       ...s.project,

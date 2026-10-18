@@ -258,7 +258,7 @@ export function parseProject(text: string) {
   if (raw && typeof raw === 'object' && 'schemaVersion' in raw && raw.schemaVersion !== 2)
     throw new DomainError(
       'SCHEMA_VERSION',
-      'This project format is unsupported. Trace currently opens version 2 and migrates version 1.',
+      'This project format is unsupported. mudroom currently opens version 2 and migrates version 1.',
     );
   try {
     return validateProject(raw);

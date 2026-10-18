@@ -4,7 +4,7 @@ test('native macOS bundle launches from another working directory and runs bundl
   test.skip(!process.env.TRACE_PACKAGED, 'Opt in after npm run package');
   test.setTimeout(90000);
   const app = await electron.launch({
-    executablePath: resolve(`release/Trace-darwin-${process.arch}/Trace.app/Contents/MacOS/Trace`),
+    executablePath: resolve(`release/mudroom-darwin-${process.arch}/mudroom.app/Contents/MacOS/mudroom`),
     args: [],
     cwd: '/private/tmp',
     env: { ...process.env, TRACE_TEST: '1' },
@@ -18,7 +18,7 @@ test('native macOS bundle launches from another working directory and runs bundl
     expect(Array.isArray(devices.ports)).toBe(true);
     expect(devices.serial.state).toBe('disconnected');
     await page.getByRole('button', { name: 'Simulate', exact: true }).click();
-    await expect(page.locator('.uart-output')).toContainText('Trace: indicator ready', {
+    await expect(page.locator('.uart-output')).toContainText('mudroom: indicator ready', {
       timeout: 60000,
     });
     await expect(page.locator('.execution-scope')).toContainText('GPIO trace:');

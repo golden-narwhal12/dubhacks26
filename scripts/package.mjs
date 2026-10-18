@@ -10,6 +10,8 @@ await rm(stage, { recursive: true, force: true });
 await mkdir(stage, { recursive: true });
 for (const dir of ['dist', 'dist-desktop']) await cp(dir, join(stage, dir), { recursive: true });
 await mkdir(join(stage, 'licenses'), { recursive: true });
+await cp('assets/fonts/OFL.txt', join(stage, 'licenses/JetBrainsMono-OFL.txt'));
+await cp('assets/fonts/README.md', join(stage, 'licenses/JetBrainsMono-source.md'));
 for (const name of [
   'react',
   'react-dom',
@@ -114,7 +116,7 @@ try {
 }
 const paths = await packager({
   dir: stage,
-  name: 'Trace',
+  name: 'mudroom',
   out: 'release',
   overwrite: true,
   platform: 'darwin',
@@ -124,7 +126,7 @@ const paths = await packager({
   prune: false,
   appBundleId: 'dev.trace.workbench',
   appCategoryType: 'public.app-category.developer-tools',
-  icon: resolve('assets/trace.icns'),
+  icon: resolve('assets/mudroom.icns'),
   extraResource: includeTools ? [tools] : [],
   osxSign: false,
 });

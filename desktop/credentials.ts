@@ -39,7 +39,7 @@ export async function listConnections(): Promise<Connection[]> {
 }
 export async function setConnection(input: unknown) {
   if (evaluationSource)
-    throw new Error('Evaluation credentials are read-only. Configure connections in Trace.');
+    throw new Error('Evaluation credentials are read-only. Configure connections in mudroom.');
   const a = z
     .object({
       provider: ProviderSchema,

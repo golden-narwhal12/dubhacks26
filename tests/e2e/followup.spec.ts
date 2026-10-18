@@ -96,9 +96,9 @@ test('native chrome, per-workspace layouts, quiet Debug and top-layer settings o
       };
     });
     await expect(page.locator('.titlebar,.statusbar,.canvas-caption')).toHaveCount(0);
-    await page.getByRole('textbox', { name: 'Ask Trace', exact: true }).fill('Unsent shared draft');
+    await page.getByRole('textbox', { name: 'Ask mudroom', exact: true }).fill('Unsent shared draft');
     await page.getByRole('button', { name: 'Debug', exact: true }).click();
-    await expect(page.getByRole('textbox', { name: 'Ask Trace', exact: true })).toHaveValue(
+    await expect(page.getByRole('textbox', { name: 'Ask mudroom', exact: true })).toHaveValue(
       'Unsent shared draft',
     );
     await expect(page.getByRole('log', { name: 'Physical serial output' })).toBeVisible();
@@ -310,7 +310,7 @@ test('agent hardware tool waits for approval and does not repeat a declined acti
       };
     });
     await page
-      .getByRole('textbox', { name: 'Ask Trace', exact: true })
+      .getByRole('textbox', { name: 'Ask mudroom', exact: true })
       .fill('Request the device connection.');
     await page.getByRole('button', { name: 'Send request', exact: true }).click();
     await expect(page.getByRole('dialog', { name: 'Start monitoring', exact: true })).toBeVisible();

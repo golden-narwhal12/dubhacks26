@@ -1,6 +1,6 @@
 # Design
 
-Trace keeps its graphite/off-white/mint palette, centralized CSS tokens and Lucide icons. Content occupies the window; no branding banner, slogan, persistent bottom strip or decorative metrics. Native macOS title bar shows the project name. Application menus own file/edit/settings/layout operations. One 40-pixel toolbar holds Verify, Program Board, a compact project-board/physical-port selector, secondary Simulate, issues and Prototype/Debug. Dock tabs are 28 pixels; panes retain drag/tab/resize/float/maximize/reset.
+mudroom uses near-black green-neutral surfaces, phosphor green accents and warm off-white text, with muted amber/cyan/coral/lilac supporting colors. Centralized CSS tokens define the palette; errors stay coral/red and warnings amber rather than using green indiscriminately. Content occupies the window; no branding banner, slogan, persistent bottom strip or decorative metrics. Native macOS title bar shows the project name. Application menus own file/edit/settings/layout operations. One 40-pixel toolbar holds Verify, Program Board, a compact project-board/physical-port selector, secondary Simulate, issues and Prototype/Debug. Dock tabs are 28 pixels; panes retain drag/tab/resize/float/maximize/reset.
 
 Prototype defaults to Circuit / Code / Agent. Debug defaults to Device / Circuit / Agent, with Code tabbed beside Circuit. Layouts persist independently; shared project/history/conversation stay intact. Switching is a navigation action with no physical or inference side effect. Successful approved programming enters Debug; upload failure stays in context.
 
@@ -30,4 +30,12 @@ New agent-created components receive deterministic spacing when requested placem
 
 Circuit issue popups use anchored native nonmodal top-layer popovers outside the SVG/node stacking context, so wires and floating groups cannot cover them. Outside clicks retain selection/drag/pan intent; Escape restores the trigger; modal dialogs take precedence. Routing reserves name labels and issue hit targets, with header lead-outs turning before them. Larger generic ICs use two-sided terminals and dynamic bounds; supply and level-shifter visuals identify power references clearly. Unknown source voltage is not drawn as 5 V.
 
-The Issues toolbar shows total errors plus warnings, red when any error exists, amber for warnings only and mint when neither exists. Unknown coverage remains separate. New chat is explicit in the Agent toolbar. New Project clears the old conversation, output and history rather than carrying them into the blank canvas.
+The Issues toolbar shows total errors plus warnings, red when any error exists, amber for warnings only and green when neither exists. Unknown coverage remains separate. New chat is explicit in the Agent toolbar. New Project clears the old conversation, output and history rather than carrying them into the blank canvas.
+
+## Terminal theme / naming
+
+User direction, 18 October: the product name is **mudroom**, always lowercase. Keep the workspace geometry and quiet interface; the theme should suggest terminal tools without theatrical scanlines, glow, animations, gamer slogans or a replacement branding header. Canvas is `#0c0f0d`, panels `#111512`, raised surfaces `#1a201b`, accent `#9af56a`. Distinct wire colors and semantic diagnostic colors remain readable.
+
+Bundled upstream JetBrains Mono v2.304 Regular/Medium provides consistent offline UI/code/log typography. This is not a patched Nerd Font. Its SIL OFL notice and source reference ship in the app. ASCII `>_` for Agent, `[+]` for a new chat, `[?]` for contextual AI, and `{}` for firmware tabs are decorative glyphs with conventional accessible control names. Standard controls and safety icons remain familiar. Border radii are subtly tighter; an active dock tab has a fine green line. New app artwork is an original lowercase m/cursor vector, not a raster asset.
+
+Renaming preserves legacy `.trace.json`, storage/IPC identifiers, bundle ID and existing keychain/profile identity. New example source uses the new name; previously saved user firmware is never rewritten for branding.

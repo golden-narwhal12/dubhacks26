@@ -1,5 +1,5 @@
 import type { Project } from './schema';
-export const demoCode = `// Trace example · Mega 2560 Rev3
+export const demoCode = `// mudroom example · Mega 2560 Rev3
 // Document external wiring; USB does not discover it.
 constexpr uint8_t LED_PIN = 13;
 constexpr unsigned long INTERVAL_MS = 350;
@@ -7,7 +7,7 @@ constexpr unsigned long INTERVAL_MS = 350;
 void setup() {
   pinMode(LED_PIN, OUTPUT);
   Serial.begin(115200);
-  Serial.println("Trace: indicator ready");
+  Serial.println("mudroom: indicator ready");
 }
 
 void loop() {

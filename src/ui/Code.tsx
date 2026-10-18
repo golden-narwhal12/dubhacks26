@@ -2,19 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import Editor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
-import { FileCode2, Link2, Plus, FileUp } from 'lucide-react';
+import { Link2, Plus, FileUp } from 'lucide-react';
 import { useWorkspace, uid } from './store';
 import { partById } from '../parts/catalog';
-import { Badge, IconButton } from './primitives';
+import { Badge, IconButton, TerminalGlyph } from './primitives';
 import { buildKey } from '../domain/semantics';
 import { FileSchema } from '../domain/schema';
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 loader.config({ monaco });
-function defineTraceTheme() {
+function defineMudroomTheme() {
   const css = getComputedStyle(document.documentElement);
   const color = (name: string) => css.getPropertyValue(name).trim();
   const syntax = (name: string) => color(name).replace('#', '');
-  monaco.editor.defineTheme('trace', {
+  monaco.editor.defineTheme('mudroom', {
     base: 'vs-dark',
     inherit: true,
     rules: [
@@ -142,7 +142,7 @@ export function Code() {
             key={f.id}
             onClick={() => useWorkspace.setState({ activeFileId: f.id })}
           >
-            <FileCode2 size={13} />
+            <TerminalGlyph value="{}" />
             {f.path}
           </button>
         ))}
@@ -197,10 +197,13 @@ export function Code() {
           path={`${project.id}/${file.id}`}
           value={file.content}
           language="cpp"
-          theme="trace"
-          beforeMount={defineTraceTheme}
+          theme="mudroom"
+          beforeMount={defineMudroomTheme}
           onMount={(e) => {
             editor.current = e;
+            void document.fonts
+              .load('12px "JetBrains Mono"')
+              .then(() => monaco.editor.remeasureFonts());
             setEditorReady(true);
           }}
           onChange={(content) => {
@@ -211,7 +214,9 @@ export function Code() {
           options={{
             editContext: false,
             fontSize: 12,
-            fontFamily: 'SFMono-Regular, Menlo, monospace',
+            fontFamily: getComputedStyle(document.documentElement)
+              .getPropertyValue('--font')
+              .trim(),
             lineHeight: 21,
             minimap: { enabled: false },
             padding: { top: 18, bottom: 16 },

@@ -23,6 +23,10 @@ const hardware = new HardwareService((snapshot) => {
   if (win && !win.isDestroyed()) win.webContents.send('hardware:snapshot', snapshot);
 });
 if (process.env.TRACE_TEST) (globalThis as any).__traceTestHardware = hardware;
+// Keep the established profile/key store when changing the visible product name.
+app.setPath('userData', join(app.getPath('appData'), 'Trace'));
+// Electron binds macOS safeStorage to its startup name. Retain that identity,
+// then set the visible name after readiness; encrypted keys stay in the same vault.
 app.setName('Trace');
 if (process.env.TRACE_EVALUATION && !process.env.TRACE_EVALUATION_FIXTURE) {
   app.commandLine.removeSwitch('use-mock-keychain');
@@ -65,8 +69,8 @@ function createWindow() {
     minWidth: 960,
     minHeight: 640,
     show: !process.env.TRACE_TEST && !process.env.TRACE_EVALUATION,
-    title: 'Trace',
-    backgroundColor: '#141719',
+    title: 'mudroom',
+    backgroundColor: '#0c0f0d',
     titleBarStyle: 'default',
     webPreferences: {
       preload: join(__dirname, 'preload.cjs'),
@@ -113,6 +117,7 @@ function createWindow() {
   else void win.loadFile(join(__dirname, '../dist/index.html'));
 }
 app.whenReady().then(async () => {
+  app.setName('mudroom');
   if (process.env.TRACE_SET_GEMINI_MODEL) {
     try {
       const model = ModelSchema.parse(process.env.TRACE_SET_GEMINI_MODEL);
@@ -168,7 +173,7 @@ app.whenReady().then(async () => {
       title: 'Export sketch into folder',
     });
     if (d.canceled) return;
-    const root = join(d.filePaths[0], `TraceSketch-${Date.now()}`),
+    const root = join(d.filePaths[0], `mudroom-sketch-${Date.now()}`),
       sketch = join(root, 'sketch');
     await mkdir(sketch, { recursive: true });
     const main =
@@ -197,7 +202,7 @@ app.whenReady().then(async () => {
     const p = validateProject(input);
     const d = await dialog.showSaveDialog(win, {
       defaultPath: `${p.name.replace(/[^a-zA-Z0-9-]/g, '-')}.trace.json`,
-      filters: [{ name: 'Trace project', extensions: ['trace.json'] }],
+      filters: [{ name: 'mudroom project', extensions: ['trace.json'] }],
     });
     if (d.canceled || !d.filePath) return { cancelled: true };
     await writeFile(d.filePath, serializeProject(p), 'utf8');
@@ -205,7 +210,7 @@ app.whenReady().then(async () => {
   });
   handle('project:open', async () => {
     const d = await dialog.showOpenDialog(win, {
-      filters: [{ name: 'Trace project', extensions: ['json'] }],
+      filters: [{ name: 'mudroom project', extensions: ['json'] }],
       properties: ['openFile'],
     });
     if (d.canceled) return { cancelled: true };

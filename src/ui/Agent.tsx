@@ -1,8 +1,8 @@
 import type { Message } from './store';
-import { ArrowUp, Square, Settings2, Sparkles, Check, X, MessageSquarePlus } from 'lucide-react';
+import { ArrowUp, Square, Settings2, Check, X } from 'lucide-react';
 import { AgentQuestion } from './AgentQuestion';
 import { useWorkspace, uid } from './store';
-import { Badge, IconButton } from './primitives';
+import { Badge, IconButton, TerminalGlyph } from './primitives';
 import { providerDefaults } from '../services/bridge';
 import { ChangeReview } from './ChangeReview';
 import { buildKey } from '../domain/semantics';
@@ -154,11 +154,11 @@ export function Agent() {
           title={s.model}
           onClick={() => useWorkspace.setState({ settings: true })}
         >
-          {s.model}
+          <span>{s.model}</span>
         </button>
         <span className="spacer" />
         <IconButton title="New chat" onClick={() => s.newChat()}>
-          <MessageSquarePlus />
+          <TerminalGlyph value="[+]" />
         </IconButton>
         <IconButton
           title="AI connections and participation"
@@ -171,7 +171,7 @@ export function Agent() {
         {s.messages.length === 0 ? (
           <div className="agent-empty">
             <div className="agent-mark">
-              <Sparkles size={21} />
+              <TerminalGlyph large />
             </div>
             {!configured ? (
               <>
@@ -196,7 +196,7 @@ export function Agent() {
             return (
               <div key={m.id} className={`message ${m.role} ${m.kind ?? ''}`}>
                 {m.role !== 'activity' && (
-                  <div className="message-label">{m.role === 'user' ? 'You' : 'Trace'}</div>
+                  <div className="message-label">{m.role === 'user' ? 'You' : 'mudroom'}</div>
                 )}
                 <p>{m.text}</p>
                 {!!m.objectIds?.length && (
@@ -320,7 +320,8 @@ export function Agent() {
                 )
               }
             >
-              <Sparkles size={13} /> {pinIssue ? 'Fix issue with Agent' : 'Explain failed build'}
+              <TerminalGlyph value="[?]" />{' '}
+              {pinIssue ? 'Fix issue with Agent' : 'Explain failed build'}
             </button>
             <IconButton
               title="Dismiss suggestion"
@@ -357,11 +358,11 @@ export function Agent() {
         }}
       >
         <textarea
-          aria-label="Ask Trace"
+          aria-label="Ask mudroom"
           placeholder={
             configured
               ? 'Ask about your circuit or code…'
-              : 'Ask Trace · connect a provider to send'
+              : 'Ask mudroom · connect a provider to send'
           }
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}

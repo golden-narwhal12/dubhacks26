@@ -135,7 +135,7 @@ describe.skipIf(process.env.TRACE_LIVE_TOOLCHAIN !== '1')(
         new AbortController().signal,
       );
       expect(result.success, result.output).toBe(true);
-      expect(result.output).toContain('Trace: indicator ready');
+      expect(result.output).toContain('mudroom: indicator ready');
       expect(result.output).toContain('indicator ON');
       expect(result.output).toMatch(/GPIO trace: [1-9]\d* sampled digital transitions/);
     }, 130000);

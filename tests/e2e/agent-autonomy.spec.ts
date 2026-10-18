@@ -57,7 +57,7 @@ test('malformed recovery → explicit question → reviewed batch → checks com
       };
     });
     await page
-      .getByRole('textbox', { name: 'Ask Trace', exact: true })
+      .getByRole('textbox', { name: 'Ask mudroom', exact: true })
       .fill('Ask which label to use, then label the LED.');
     await page.getByRole('button', { name: 'Send request', exact: true }).click();
     const question = page.getByRole('form', { name: 'Agent question' });
@@ -114,7 +114,7 @@ test('New chat cancels a waiting question and old asynchronous status cannot rea
         );
     });
     await page
-      .getByRole('textbox', { name: 'Ask Trace', exact: true })
+      .getByRole('textbox', { name: 'Ask mudroom', exact: true })
       .fill('Ask me about the label.');
     await page.getByRole('button', { name: 'Send request', exact: true }).click();
     await expect(page.getByRole('form', { name: 'Agent question' })).toBeVisible();
@@ -178,7 +178,7 @@ test('intermittent 503 recovery resets after success while preserving one review
       };
     });
     await page
-      .getByRole('textbox', { name: 'Ask Trace', exact: true })
+      .getByRole('textbox', { name: 'Ask mudroom', exact: true })
       .fill('Label the LED Recovered.');
     await page.getByRole('button', { name: 'Send request', exact: true }).click();
     await page.getByRole('button', { name: 'Apply and continue', exact: true }).click();

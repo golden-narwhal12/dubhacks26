@@ -65,7 +65,7 @@ test('manual wiring → mismatch → reviewed fix → real MCU output, save/reop
     await expect(page.getByText('Compiled MCU execution · external simavr')).toBeVisible({
       timeout: 60000,
     });
-    await expect(page.locator('.uart-output')).toContainText('Trace: indicator ready');
+    await expect(page.locator('.uart-output')).toContainText('mudroom: indicator ready');
     await expect(page.locator('.uart-output')).toContainText('indicator ON');
     await expect(page.locator('.execution-scope')).toContainText('GPIO trace:');
     await page.getByRole('button', { name: 'Fit view', exact: true }).click();
@@ -232,7 +232,7 @@ test('Gemini tool loop with deterministic protocol fixtures, visible proposal an
       };
     });
     await page
-      .getByRole('textbox', { name: 'Ask Trace', exact: true })
+      .getByRole('textbox', { name: 'Ask mudroom', exact: true })
       .fill('Inspect the real shared circuit and label the LED.');
     await page.getByRole('button', { name: 'Send request', exact: true }).click();
     await expect(page.getByText('Proposed change', { exact: true })).toBeVisible();
@@ -328,7 +328,7 @@ test('proactive failed-build continuation stays inside the requested task and it
       };
     });
     await page
-      .getByRole('textbox', { name: 'Ask Trace', exact: true })
+      .getByRole('textbox', { name: 'Ask mudroom', exact: true })
       .fill('Inspect the firmware project.');
     await page.getByRole('button', { name: 'Send request', exact: true }).click();
     await expect(

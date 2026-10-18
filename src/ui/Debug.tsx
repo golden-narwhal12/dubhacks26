@@ -69,7 +69,7 @@ export function Debug() {
       <div className="device-program-state">
         {matching
           ? uploaded.artifact.buildKey === buildKey(s.project)
-            ? 'Matches last Trace upload'
+            ? 'Matches last mudroom upload'
             : 'Local firmware changed since upload'
           : 'Device program identity unknown'}
         {matching && <small> · {uploaded.artifact.id.slice(0, 12)}</small>}

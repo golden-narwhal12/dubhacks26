@@ -1,6 +1,6 @@
-# Trace implementation guide
+# mudroom implementation guide
 
-Trace is a local macOS circuit and firmware workbench. Read [product](docs/product.md), [architecture](docs/architecture.md), [design](docs/design.md), and [status](docs/status.md) before extending it. Status records actual verification and remaining work.
+mudroom is a local macOS circuit and firmware workbench. Read [product](docs/product.md), [architecture](docs/architecture.md), [design](docs/design.md), and [status](docs/status.md) before extending it. Status records actual verification and remaining work.
 
 ## Commands
 

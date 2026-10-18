@@ -4,7 +4,7 @@ const { resolve, join } = require('node:path');
 const { spawnSync } = require('node:child_process');
 app.whenReady().then(async () => {
   try {
-    const folder = resolve('artifacts/trace.iconset');
+    const folder = resolve('artifacts/mudroom.iconset');
     await mkdir(folder, { recursive: true });
     const win = new BrowserWindow({
       width: 1024,
@@ -14,7 +14,7 @@ app.whenReady().then(async () => {
       frame: false,
       webPreferences: { offscreen: true },
     });
-    await win.loadFile(resolve('assets/trace.svg'));
+    await win.loadFile(resolve('assets/mudroom.svg'));
     const icon = await win.webContents.capturePage();
     for (const size of [16, 32, 128, 256, 512])
       for (const scale of [1, 2])
@@ -24,7 +24,7 @@ app.whenReady().then(async () => {
         );
     const result = spawnSync(
       'iconutil',
-      ['-c', 'icns', folder, '-o', resolve('assets/trace.icns')],
+      ['-c', 'icns', folder, '-o', resolve('assets/mudroom.icns')],
       { stdio: 'inherit', shell: false },
     );
     if (result.status !== 0) throw new Error('iconutil failed');

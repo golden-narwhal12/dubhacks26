@@ -1,4 +1,4 @@
-// Trace example: Mega 2560 + photo-matched AS5600 module + generic SG90.
+// mudroom example: Mega 2560 + photo-matched AS5600 module + generic SG90.
 // Requires the documented external 5 V servo source and Adafruit 757 interface.
 // This is visible user firmware. Nothing is inserted during compile/upload.
 // Servo 1.3.0: explicit 1000–2000 us design range; verify your actual servo limits.

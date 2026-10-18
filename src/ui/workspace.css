@@ -1417,6 +1417,12 @@ body,
   padding: 2px !important;
   max-width: 100px;
 }
+.agent-model span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .agent-panel > .panel-toolbar select {
   max-width: 135px;
 }
@@ -1580,4 +1586,29 @@ body,
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
   margin-block: var(--space-3);
+}
+
+/* Small terminal cues, with conventional labels and geometry retained. */
+.terminal-glyph {
+  display: inline-block;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: -0.8px;
+  white-space: pre;
+  flex-shrink: 0;
+}
+.terminal-glyph.large {
+  font-size: 25px;
+  letter-spacing: -2px;
+}
+.agent-mark .terminal-glyph {
+  color: var(--accent);
+}
+.dv-tab.dv-active-tab {
+  box-shadow: inset 0 1px var(--accent);
+}
+.message-label {
+  font-family: var(--mono);
+}
+.agent-panel textarea::placeholder {
+  color: var(--faint);
 }

@@ -123,7 +123,7 @@ test('threshold pauses unexecuted duplicate-stream mutation, Settings persist an
         );
       };
     });
-    await page.getByRole('textbox', { name: 'Ask Trace', exact: true }).fill('Label the LED.');
+    await page.getByRole('textbox', { name: 'Ask mudroom', exact: true }).fill('Label the LED.');
     await page.getByRole('button', { name: 'Send request', exact: true }).click();
     await expect(page.getByText(/1 tool was not executed/)).toBeVisible();
     expect(
@@ -238,7 +238,7 @@ test('Resume retains exhausted cumulative budget until the user raises it', asyn
       };
     });
     await page
-      .getByRole('textbox', { name: 'Ask Trace', exact: true })
+      .getByRole('textbox', { name: 'Ask mudroom', exact: true })
       .fill('Inspect the project.');
     await page.getByRole('button', { name: 'Send request', exact: true }).click();
     await expect(page.getByText(/1 tool was not executed/)).toBeVisible();
@@ -280,7 +280,7 @@ test('changing projects cancels the active task and never applies its pending mu
       };
     });
     await page
-      .getByRole('textbox', { name: 'Ask Trace', exact: true })
+      .getByRole('textbox', { name: 'Ask mudroom', exact: true })
       .fill('Fix the current circuit.');
     await page.getByRole('button', { name: 'Send request', exact: true }).click();
     await expect(

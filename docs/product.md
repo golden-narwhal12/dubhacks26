@@ -1,6 +1,6 @@
 # Product
 
-Trace brings documented hardware and firmware into one local development loop. A direct wiring canvas, code editor, and AI collaborator share structured project data. The editor stays useful with all providers disabled. Physical wiring is documented by a person; USB never discovers it.
+mudroom brings documented hardware and firmware into one local development loop. A direct wiring canvas, code editor, and AI collaborator share structured project data. The editor stays useful with all providers disabled. Physical wiring is documented by a person; USB never discovers it.
 
 The workspace supports idea, hardware, code, and blank entry points. Initial boards chosen by Pranav: Arduino Mega 2560 Rev3 A000067 and Espressif ESP32-S3-DevKitC-1 v1.1. ESP module flash/PSRAM variant is unconfirmed. The resettable Mega example uses a generic red LED and configurable 330 Ω resistor with explicit analysis assumptions. Existing exact Kingbright/Vishay packages remain available to old project references. No claim is made about other available components.
 

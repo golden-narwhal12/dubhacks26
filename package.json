@@ -1,6 +1,6 @@
 {
-  "name": "trace-workbench",
-  "productName": "Trace",
+  "name": "mudroom",
+  "productName": "mudroom",
   "version": "0.1.0",
   "private": true,
   "type": "module",

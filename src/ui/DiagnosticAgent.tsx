@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useWorkspace } from './store';
-import { Sparkles } from 'lucide-react';
+import { TerminalGlyph } from './primitives';
 
 /** This UI only captures intent. The runtime resolves the current diagnostic before inference. */
 export function DiagnosticAgent({ diagnosticId }: { diagnosticId: string }) {
@@ -57,7 +57,7 @@ export function DiagnosticAgent({ diagnosticId }: { diagnosticId: string }) {
           }
         }}
       >
-        <Sparkles size={13} />
+        <TerminalGlyph value="[?]" />
       </button>
       {open && (
         <div

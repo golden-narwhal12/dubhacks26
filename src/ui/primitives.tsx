@@ -1,4 +1,18 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
+/** Text glyphs stay decorative; the parent control owns its accessible label. */
+export function TerminalGlyph({
+  value = '>_',
+  large = false,
+}: {
+  value?: string;
+  large?: boolean;
+}) {
+  return (
+    <span aria-hidden="true" className={`terminal-glyph${large ? ' large' : ''}`}>
+      {value}
+    </span>
+  );
+}
 export function IconButton({
   title,
   children,

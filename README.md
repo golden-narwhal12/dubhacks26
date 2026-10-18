@@ -1,4 +1,4 @@
-# Trace
+# mudroom
 
 A local macOS workbench for developing documented hardware and firmware together. Editable wiring, a real code editor, scoped engineering checks, and an AI agent share one versioned project model.
 
@@ -12,7 +12,7 @@ npm run build
 npm start
 ```
 
-Development: `npm run dev`. Browser-only manual editor: `npm run dev:web`. Native app: `npm run package` creates `release/Trace-darwin-arm64/Trace.app` on this Mac. It is a local development bundle; nothing is published.
+Development: `npm run dev`. Browser-only manual editor: `npm run dev:web`. Native app: `npm run package` creates `release/mudroom-darwin-arm64/mudroom.app` on this Mac. It is a local development bundle; nothing is published.
 
 Compilation requires macOS, Arduino CLI and the `arduino:avr` / `esp32:esp32` cores in the standard Arduino15 data directory. They are already installed on this development Mac. Build/simulator processes use file/network confinement and private scratch directories; existing user libraries are not implicitly exposed. Run `npm run setup:libraries` for the checksum-pinned official Servo 1.3.0 dependency. For Mega execution, run `npm run setup:simavr` once before packaging. It builds an external, pinned GPL simulator locally; source and license are retained under ignored `artifacts/tools` and included with the local app bundle. See [execution setup and scope](docs/execution.md).
 
@@ -47,3 +47,5 @@ Read [current status](docs/status.md), [product](docs/product.md), [architecture
 Agent instructions live in [src/services/instructions.ts](src/services/instructions.ts). Settings → Task limits exposes the independent task thresholds; the default reported-token maximum is 1,000,000. Gemini defaults to `gemini-3.5-flash-lite`. See [evaluation evidence and commands](docs/evaluation.md) before interpreting fixture results as live capability. `npm run evaluate:fixtures` exercises the same runtime with deterministic responses and real compilation; `npm run evaluate:gemini -- --cases led,servo-encoder --repeat 1` is an opt-in paid isolated batch. No physical actions are allowed by that suite.
 
 Project → Servo and Encoder Example opens a complete labeled manual design with external servo power and Adafruit 757 level conversion. Verify compiles its exact visible source; Debug fields remain Not reported until actual firmware data arrives. Local review batches and structured questions continue the same task automatically. New chat clears conversation only; New Project clears the project/session. Latest live Gemini attempts were interrupted by repeated 503 responses; the manual template is not presented as live AI success.
+
+The near-black/green theme uses locally bundled [JetBrains Mono](assets/fonts/README.md), with no font installation or runtime download. Existing `.trace.json` projects and the original local settings/provider profile remain compatible with the mudroom rename.
