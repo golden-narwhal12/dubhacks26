@@ -201,9 +201,6 @@ export function Code() {
           beforeMount={defineMudroomTheme}
           onMount={(e) => {
             editor.current = e;
-            void document.fonts
-              .load('12px "JetBrains Mono"')
-              .then(() => monaco.editor.remeasureFonts());
             setEditorReady(true);
           }}
           onChange={(content) => {
@@ -214,9 +211,7 @@ export function Code() {
           options={{
             editContext: false,
             fontSize: 12,
-            fontFamily: getComputedStyle(document.documentElement)
-              .getPropertyValue('--font')
-              .trim(),
+            fontFamily: 'SFMono-Regular, Menlo, monospace',
             lineHeight: 21,
             minimap: { enabled: false },
             padding: { top: 18, bottom: 16 },

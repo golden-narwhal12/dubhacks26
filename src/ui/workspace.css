@@ -1606,9 +1606,6 @@ body,
 .dv-tab.dv-active-tab {
   box-shadow: inset 0 1px var(--accent);
 }
-.message-label {
-  font-family: var(--mono);
-}
 .agent-panel textarea::placeholder {
   color: var(--faint);
 }

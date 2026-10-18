@@ -48,4 +48,4 @@ Agent instructions live in [src/services/instructions.ts](src/services/instructi
 
 Project → Servo and Encoder Example opens a complete labeled manual design with external servo power and Adafruit 757 level conversion. Verify compiles its exact visible source; Debug fields remain Not reported until actual firmware data arrives. Local review batches and structured questions continue the same task automatically. New chat clears conversation only; New Project clears the project/session. Latest live Gemini attempts were interrupted by repeated 503 responses; the manual template is not presented as live AI success.
 
-The near-black/green theme uses locally bundled [JetBrains Mono](assets/fonts/README.md), with no font installation or runtime download. Existing `.trace.json` projects and the original local settings/provider profile remain compatible with the mudroom rename.
+The near-black/green theme uses the original system UI and code fonts, with no font installation or runtime download. Existing `.trace.json` projects and the original local settings/provider profile remain compatible with the mudroom rename.

@@ -10,8 +10,6 @@ await rm(stage, { recursive: true, force: true });
 await mkdir(stage, { recursive: true });
 for (const dir of ['dist', 'dist-desktop']) await cp(dir, join(stage, dir), { recursive: true });
 await mkdir(join(stage, 'licenses'), { recursive: true });
-await cp('assets/fonts/OFL.txt', join(stage, 'licenses/JetBrainsMono-OFL.txt'));
-await cp('assets/fonts/README.md', join(stage, 'licenses/JetBrainsMono-source.md'));
 for (const name of [
   'react',
   'react-dom',
