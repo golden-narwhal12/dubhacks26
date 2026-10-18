@@ -1,6 +1,9 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { installMenu } from './menu';
+import { HardwareService } from './hardware';
+import { HardwareRequestInputSchema, ObserveSchema } from '../src/services/hardware';
 import { join } from 'node:path';
-import { readFile, writeFile, stat } from 'node:fs/promises';
+import { readFile, writeFile, stat, mkdir } from 'node:fs/promises';
 import { validateProject, parseProject, serializeProject } from '../src/domain/project';
 import { listConnections, setConnection, keyFor } from './credentials';
 import { callProvider, ProviderSchema, ModelSchema } from './providers';
@@ -9,6 +12,10 @@ import { runToolchain, toolchainCapabilities, configureToolRoot } from './toolch
 
 let win: BrowserWindow;
 const tasks = new Map<string, AbortController>();
+const hardware = new HardwareService((snapshot) => {
+  if (win && !win.isDestroyed()) win.webContents.send('hardware:snapshot', snapshot);
+});
+if (process.env.TRACE_TEST) (globalThis as any).__traceTestHardware = hardware;
 app.setName('Trace');
 if (process.env.TRACE_TEST)
   app.setPath('userData', join(app.getPath('temp'), `trace-test-${process.pid}`));
@@ -28,8 +35,7 @@ function createWindow() {
     show: !process.env.TRACE_TEST,
     title: 'Trace',
     backgroundColor: '#141719',
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 17 },
+    titleBarStyle: 'default',
     webPreferences: {
       preload: join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -39,7 +45,7 @@ function createWindow() {
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (
-      /^https:\/\/(docs\.arduino\.cc|www\.kingbrightusa\.com|www\.vishay\.com|documentation\.espressif\.com|docs\.espressif\.com)\//.test(
+      /^https:\/\/(docs\.arduino\.cc|www\.kingbrightusa\.com|www\.vishay\.com|documentation\.espressif\.com|docs\.espressif\.com|busboard\.com|www\.busboard\.com|everlightamericas\.com|towerpro\.com\.tw|look\.ams-osram\.com)\//.test(
         url,
       )
     )
@@ -60,6 +66,64 @@ app.whenReady().then(() => {
       : join(__dirname, '../artifacts/tools'),
   );
   createWindow();
+  installMenu(() => win);
+  handle('project:title', (input) => {
+    win.setTitle(z.string().min(1).max(100).parse(input));
+  });
+  handle('hardware:sync', (input) => hardware.syncProject(validateProject(input)));
+  handle('hardware:discover', () => hardware.discover());
+  handle('hardware:snapshot', () => hardware.snapshot());
+  handle('hardware:verify', (input) => {
+    const a = z
+      .object({ project: z.unknown(), requestId: z.string().uuid() })
+      .strict()
+      .parse(input);
+    return hardware.verify(validateProject(a.project), a.requestId);
+  });
+  handle('hardware:request', (input) => hardware.request(HardwareRequestInputSchema.parse(input)));
+  handle('hardware:approve', (input) => {
+    const a = z
+      .object({ id: z.string().uuid(), overrideVerification: z.boolean().optional() })
+      .strict()
+      .parse(input);
+    return hardware.approve(a.id, a.overrideVerification);
+  });
+  handle('hardware:cancel', (input) => hardware.cancel(z.string().uuid().parse(input)));
+  handle('hardware:observe', (input) => {
+    const a = z
+      .object({ input: ObserveSchema, requestId: z.string().uuid() })
+      .strict()
+      .parse(input);
+    return hardware.observe(a.input, a.requestId);
+  });
+  handle('project:export', async (input) => {
+    const p = validateProject(input);
+    const d = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Export sketch into folder',
+    });
+    if (d.canceled) return;
+    const root = join(d.filePaths[0], `TraceSketch-${Date.now()}`),
+      sketch = join(root, 'sketch');
+    await mkdir(sketch, { recursive: true });
+    const main =
+      p.files.find((f) => f.path === 'sketch.ino') ?? p.files.find((f) => f.path.endsWith('.ino'));
+    for (const f of p.files)
+      await writeFile(join(sketch, f.id === main?.id ? 'sketch.ino' : f.path), f.content, 'utf8');
+    await writeFile(
+      join(root, 'configuration.json'),
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          targetBoardId: p.targetBoardId,
+          boardSettings: p.boardSettings,
+          dependencies: 'Installed Arduino core libraries only; no hidden source transformations.',
+        },
+        null,
+        2,
+      ),
+    );
+  });
   handle('project:save', async (input) => {
     const p = validateProject(input);
     const d = await dialog.showSaveDialog(win, {
@@ -121,7 +185,8 @@ app.whenReady().then(() => {
   });
   handle('task:cancel', (id) => {
     const key = z.string().uuid().parse(id);
-    tasks.get(key)?.abort();
+    if (tasks.has(key)) tasks.get(key)!.abort();
+    else return hardware.cancel(key).catch(() => undefined);
   });
   handle('toolchain:build', async (input) => {
     const a = z
@@ -149,5 +214,6 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
+  void hardware.dispose();
   for (const task of tasks.values()) task.abort();
 });

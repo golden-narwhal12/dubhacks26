@@ -8,6 +8,7 @@ import {
   X,
 } from 'lucide-react';
 import { useWorkspace } from './store';
+import { buildKey, circuitKey } from '../domain/semantics';
 import { Badge, IconButton } from './primitives';
 export function Output() {
   const s = useWorkspace();
@@ -115,7 +116,15 @@ export function Output() {
               </span>
               <span className="muted">
                 {(s.result.durationMs / 1000).toFixed(1)}s · r{s.result.revision}
-                {s.result.revision !== s.project.revision ? ' · STALE' : ''}
+                {s.result.buildKey
+                  ? s.result.buildKey !== buildKey(s.project) ||
+                    (s.result.kind === 'simulation' &&
+                      s.result.circuitKey !== circuitKey(s.project))
+                    ? ' · STALE'
+                    : ' · Current'
+                  : s.result.revision !== s.project.revision
+                    ? ' · STALE'
+                    : ''}
               </span>
             </div>
             {s.result.observations ? (

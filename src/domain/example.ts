@@ -21,16 +21,16 @@ void loop() {
 `;
 export function exampleProject(): Project {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: 'indicator-demo',
     name: 'Indicator / Mega 2560',
     revision: 0,
     components: [
       { id: 'board', partId: 'arduino-mega-r3', partVersion: 1, ref: 'U1', config: {} },
-      { id: 'resistor', partId: 'vishay-mrs25-330', partVersion: 1, ref: 'R1', config: {} },
+      { id: 'resistor', partId: 'generic-resistor', partVersion: 1, ref: 'R1', config: {} },
       {
         id: 'led',
-        partId: 'kingbright-wp7113id',
+        partId: 'generic-led',
         partVersion: 1,
         ref: 'D1',
         config: { label: 'Status indicator' },
@@ -81,11 +81,13 @@ export function exampleProject(): Project {
       },
     ],
     targetBoardId: 'board',
+    boardSettings: {},
+    telemetry: [],
   };
 }
 export function blankProject(): Project {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: `project-${Date.now()}`,
     name: 'Untitled project',
     revision: 0,
@@ -95,5 +97,7 @@ export function blankProject(): Project {
     files: [{ id: 'main', path: 'sketch.ino', content: 'void setup() {\n}\n\nvoid loop() {\n}\n' }],
     bindings: [],
     targetBoardId: null,
+    boardSettings: {},
+    telemetry: [],
   };
 }

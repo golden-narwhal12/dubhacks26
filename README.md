@@ -2,7 +2,7 @@
 
 A local macOS workbench for developing documented hardware and firmware together. Editable wiring, a real code editor, scoped engineering checks, and an AI agent share one versioned project model.
 
-Initial boards: **Arduino Mega 2560 Rev3** and **Espressif ESP32-S3-DevKitC-1 v1.1**. The four-package library also includes a Kingbright WP7113ID LED and Vishay MRS25 330 Ω resistor. Pin facts link to original manufacturer evidence.
+Initial boards: **Arduino Mega 2560 Rev3** and **Espressif ESP32-S3-DevKitC-1 v1.1**. The catalog also includes generic LED/resistor/potentiometer, BB830, a photo-matched AS5600 module, generic SG90 and bare ITR9608. Existing exact passive packages are preserved for old projects. Pin facts link to original manufacturer evidence.
 
 ## Run
 
@@ -18,11 +18,13 @@ Compilation requires macOS, Arduino CLI and the `arduino:avr` / `esp32:esp32` co
 
 ## Try the loop
 
-1. Project → Reset indicator example. Select a Mega terminal and expand Documented facts.
-2. Select the signal wire, disconnect it, then drag **U1.12 → R1.1**. The initial code/binding still points to 13.
-3. Open Diagnostics. Preview the coordinated binding/code fix, review the diff, and Apply. Undo/redo restores the group coherently.
-4. Run MCU. Observe actual compiled Mega UART output and digital transition counts. External circuitry is not simulated.
-5. Save/reopen the `.trace.json` project. Circuit semantics, both layouts, firmware and explicit bindings survive.
+1. Prototype → inspect a Mega terminal; Evidence stays on demand.
+2. Disconnect the signal wire, then drag **U1.12 → R1.1**. The initial code/binding still points to 13.
+3. Open Issues and Output. Review/apply the coordinated fix; undo/redo through Edit.
+4. Verify checks and compiles. Simulate executes Mega machine code separately.
+5. Select a real device, Program Board, and review/approve the exact artifact. Real-device tests remain pending; no physical operation is automatic.
+6. In Debug, explicitly start monitoring, inspect raw output and preview a field mapping. Unreported values are not zero. Workspace changes and samples cause zero model requests.
+7. File → Save/Open preserves versioned source, circuit, layouts, properties, board configuration and mappings.
 
 AI is optional. In AI settings, save a provider API key, select a model ID, and Test. Gemini is the default; OpenAI, Claude and Grok have separate real protocol adapters. Keys stay encrypted in the desktop credential boundary. Provider model/account access can vary; there is no silent fallback. [Demo outline](docs/demo.md) distinguishes live verification from fixture tests.
 
@@ -38,6 +40,6 @@ End-to-end tests run the actual Electron app in isolated temporary profiles. A p
 
 ## Scope
 
-Manual editing and checks work offline. Rules validate structural references, known supply shorts, mixed logic, explicit pin mappings and a simple LED path. They do not certify arbitrary circuits or analyze general C++ control flow. The schematic is a basic electrical-symbol view with independent layout. ESP32-S3 compilation uses conservative default toolchain options; confirm the actual flash/PSRAM variant before physical operations. Physical upload/serial, ESP32-S3 simulation, analog/SPICE, breadboards, advanced schematic tooling and datasheet import remain deferred.
+Manual editing and checks work offline. Rules validate structural references, known supply shorts, mixed logic, explicit pin mappings and a simple LED path. They do not certify arbitrary circuits or analyze general C++ control flow. The schematic is a basic electrical-symbol view with independent layout. ESP32-S3 compilation uses conservative default toolchain options; confirm the actual flash/PSRAM variant before physical operations. Real-device upload/serial validation, ESP32-S3 simulation, analog/SPICE, advanced schematic tooling and datasheet import remain deferred.
 
 Read [current status](docs/status.md), [product](docs/product.md), [architecture](docs/architecture.md), and [design](docs/design.md). Contributor rules and commands live in [AGENTS.md](AGENTS.md).

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Modal } from './Modal';
 import { X, KeyRound, Check, Trash2 } from 'lucide-react';
 import { useWorkspace } from './store';
 import { providerDefaults, type ProviderId } from '../services/bridge';
@@ -39,22 +40,11 @@ export function Settings() {
     }
   };
   return (
-    <div
-      className="modal-backdrop"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) useWorkspace.setState({ settings: false });
-      }}
-    >
-      <section
-        className="settings-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="AI connections"
-      >
+    <Modal label="Settings" onClose={() => useWorkspace.setState({ settings: false })}>
+      <section className="settings-modal">
         <div className="modal-header">
           <div>
             <h2>AI connections</h2>
-            <p>Bring your own API key. Keep your workspace local.</p>
           </div>
           <span className="spacer" />
           <IconButton
@@ -175,11 +165,6 @@ export function Settings() {
               <option value="apply">Apply reversible edits</option>
             </select>
           </div>
-          <p className="muted">
-            Suggestions run locally with zero model calls. Proactive can investigate one failed
-            build you run while an explicitly requested agent task is active. Agent-initiated builds
-            continue as part of their requested task in every mode.
-          </p>
           <details>
             <summary>Task limits and supported triggers</summary>
             <p>
@@ -197,6 +182,6 @@ export function Settings() {
           </details>
         </div>
       </section>
-    </div>
+    </Modal>
   );
 }

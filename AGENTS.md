@@ -26,6 +26,8 @@ Trace is a local macOS circuit and firmware workbench. Read [product](docs/produ
 - No inference for selections, typing, movement, layout, checks, or suggestion presentation. Model calls require an eligible task and enforced budgets.
 - No arbitrary model-generated shell commands. Build processes use fixed executables, validated arguments, bounded output, timeout, and cancellation.
 - Compiler/simulator children must retain macOS file/network confinement; never silently fall back to unrestricted execution. Keep allowed roots fixed to required system/tool/package data and scratch. No arbitrary imported/user library directories.
+- Physical requests must await one-use main-process approval bound to immutable parameters/device/artifact; local editing approval never authorizes hardware. Do not perform developer physical tests without the user approving the exact operation.
+- Keep semantic verification/build freshness independent from revision checks; layout changes never invalidate builds. Serial ingestion/parser updates make zero model requests.
 - Add no publishing, submissions, messaging, domains, or physical operations without explicit user authorization.
 
 ## Delegation

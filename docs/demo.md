@@ -1,28 +1,16 @@
 # Demo and reset
 
-## Preparation
+Build/launch: `npm ci && npm run build && npm start`; native `npm run package`. Set up external Mega emulation once with `npm run setup:simavr`. File → Open accepts `.trace.json`; Project → Reset Indicator Example is undoable. View → Reset Workspace Layout resets only the active Prototype/Debug arrangement. `examples/indicator.trace.json` is the version 2 generic-passive example. Old version 1 exact packages migrate without replacement.
 
-`npm ci && npm run build && npm start`. On this Mac, Arduino CLI and both requested cores are installed. `npm run setup:simavr` prepares the external Mega simulator; `npm run test:toolchain` verifies both compilation targets and real Mega execution. Missing tools produce a specific error, independent of AI.
+1. Prototype: show the compact native toolbar and editable Circuit/Code/Agent. Inspect a Mega pin; Evidence is on demand. Move/rotate a component: endpoints/nets stay unchanged and wires reroute around bodies.
+2. Disconnect the signal wire and drag U1.12 → R1.1. Activate the small issue indicator or Issues and Output. Review/apply the grouped binding/code fix; undo/redo. Monaco marks the known source span. No AI request is needed.
+3. Verify compiles visible source and runs scoped checks. Simulate independently executes compiled Mega instructions with emulated UART/GPIO. It does not model external sensors, servo, LED, resistor, power or analog behavior. Show scope without implying physical execution.
+4. Show parts categories: one LED and resistor entry with editable properties, photo-matched AS5600, provisional SG90/ITR9608, and exact BB830. Its rails are continuous; other breadboards may differ. Do not imply source-backed chip facts prove an anonymous breakout.
+5. With a real board only when the user chooses: select project target and physical port, Program Board, review exact source/artifact/configuration and verification, approve. Missing verification offers Verify or explicit override; compilation must succeed. No automatic programming follows Verify. Success opens Debug.
+6. Approve Start monitoring. Show only real transmitted raw output. Pick an actual example line, configure field/parser/component/units/meaning, preview, save. Missing fields are Not reported. Distinguish commanded servo position from feedback and host time from device timestamps. No model calls occur per sample.
+7. If Gemini is configured/tested, ask it to inspect current wiring and bounded telemetry, explain a real issue and propose a visible local correction. A separate hardware action card must be approved to program it. Show cancellation of an exact serial/reset request; no operation should execute on denial. Never substitute a fixture or hidden script for live AI/hardware.
+8. Save/reopen preserves files, endpoints, layouts, properties, board settings and parser mappings. Workspace switches preserve project and conversation without opening ports.
 
-Project → Reset indicator example restores the documented Mega/330 Ω/red LED circuit and firmware. Reset is undoable. Reset pane layout restores Circuit/Code/Agent. A ready-to-open copy lives at `examples/indicator.trace.json`. A blank project is available from the same menu; firmware files can be imported without a provider.
+Actual physical operations and live Gemini remain unverified until the user performs the explicitly approved tests. Deterministic tests use fake serial/device/adapter data, clearly distinguished from real compiler/emulator runs. Monitor histories and upload records are session-local, and external reflashing cannot be detected. [Status](status.md) records latest actual evidence; [execution](execution.md) records setup and limits; [parts](parts.md) records identity questions.
 
-For AI, add a Gemini API key inside the desktop settings, retain an accessible configured model, and Test. No subscription login is implemented. Do not put keys in chat, screenshots, project files, or the repository. The test makes a small real API request. Keep the default Suggest and Preview settings for a clear demonstration. Model responses are live and nondeterministic; replaying a project does not replay a model response.
-
-## Compact sequence
-
-1. Show the three editable panes. Select U1.13 and expand Documented facts: Mega D13 maps to PB7 in the official Rev3 pinout. Open its source explicitly if useful.
-2. Show `LED_PIN = 13` and its cross-pane pin link. Drag the LED or resistor to establish that the wiring is real editable state; connectivity stays unchanged.
-3. Select the signal wire and Disconnect. Drag U1.12 to R1.1. Open Diagnostics: the documented wiring, explicit binding, and simple firmware constant disagree.
-4. Without AI, Preview fix shows the binding and code diff. Apply, undo and redo. This establishes a useful deterministic editor with no model calls.
-5. For the AI version, undo the fix, then request: “Inspect the current pin mismatch. Read the relevant firmware and documented pin facts, then propose a grouped correction that preserves my actual wiring.” Show tool inspection and review/apply the real proposed changes. If it misunderstands, clarify; do not substitute a hidden script and present it as live AI.
-6. Run MCU. Show UART ready/ON/OFF output and sampled transitions. State precisely: Arduino CLI compiled the firmware; external simavr executes ATmega2560 machine code; the external analog circuit is not simulated. Result revision must match the current project.
-7. Add the ESP32-S3 DevKitC-1 v1.1 from Parts, choose it as build target, and Build if time permits. Show its 3.3 V logic and variant-dependent pins. ESP32-S3 simulation and physical upload are unavailable.
-8. Save/reopen the project; finish with the working loop and actual limitations.
-
-## Verification boundaries
-
-Actual macOS Electron interactions, manual wire gestures, local mismatch/fix, coherent undo/redo, save/reopen, docking/maximize, file editing, and compiled Mega output are automated. Provider-specific fixtures cover Gemini/OpenAI/Claude/Grok streaming and tool translations, cancellation/errors and key isolation. A fixture-driven desktop test is explicitly not live AI verification. Latest live-provider status is recorded in `status.md`; never infer it from passing fixture tests.
-
-The sample LED-current calculation is a nominal estimate under stated assumptions. It is not a physical current measurement, power guarantee, arbitrary circuit verifier or full-device simulator. GPIO transitions and wall-time throughput vary by host. Firmware output is untrusted data. USB connection never establishes external wiring.
-
-No promotional video, submission, domain registration or publication has been performed.
+No video production, submission, domain registration or publication has been performed.

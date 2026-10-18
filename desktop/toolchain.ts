@@ -7,6 +7,10 @@ import { validateProject } from '../src/domain/project';
 import { partById } from '../src/parts/catalog';
 import type { Project } from '../src/domain/schema';
 import type { RunResult } from '../src/services/bridge';
+import { targetConfiguration, buildKey, circuitKey } from '../src/domain/semantics';
+import { createHash } from 'node:crypto';
+import { readdir } from 'node:fs/promises';
+import type { PreparedArtifact, DevicePort } from '../src/services/hardware';
 import { prepareConfinement } from './confinement';
 
 const OUTPUT_LIMIT = 64 * 1024;
@@ -156,9 +160,11 @@ export function runBoundedProcess(
 export async function runToolchain(
   input: { project: Project; requestId: string; simulate: boolean },
   signal: AbortSignal,
+  retained?: { directory?: string; artifact?: PreparedArtifact },
 ): Promise<RunResult> {
   const started = Date.now(),
     kind = input.simulate ? 'simulation' : 'build';
+  let semanticKeys: { buildKey?: string; circuitKey?: string } = {};
   let revision = 0,
     directory: string | undefined;
   const result = (success: boolean, output: string): RunResult => ({
@@ -168,10 +174,12 @@ export async function runToolchain(
     kind,
     output,
     durationMs: Date.now() - started,
+    ...semanticKeys,
   });
   try {
     const project = validateProject(input.project);
     revision = project.revision;
+    semanticKeys = { buildKey: buildKey(project), circuitKey: circuitKey(project) };
     if (
       typeof input.requestId !== 'string' ||
       !/^[a-zA-Z0-9_.-]{1,120}$/.test(input.requestId) ||
@@ -182,7 +190,7 @@ export async function runToolchain(
     const board = project.components.find((c) => c.id === project.targetBoardId);
     if (!board) return result(false, 'Choose a target board in the circuit before building.');
     const part = partById(board.partId),
-      fqbn = fqbnByPart[part.id];
+      fqbn = targetConfiguration(project, Boolean(retained)).fqbn;
     if (!fqbn) return result(false, 'No build adapter is available for this exact part.');
     if (input.simulate && part.id !== 'arduino-mega-r3')
       return result(
@@ -258,9 +266,23 @@ export async function runToolchain(
       );
     const variant =
       part.id === 'esp32-s3-devkitc1-v11'
-        ? '\nESP32-S3 defaults: 4 MB flash / no PSRAM; module variant is unconfirmed. This build does not verify physical board configuration.'
+        ? `\nESP32-S3 configuration: ${project.boardSettings.esp32 ? `${project.boardSettings.esp32.flashMB} MB flash / ${project.boardSettings.esp32.psram} PSRAM; ${project.boardSettings.esp32.confirmed ? 'user-confirmed variant' : 'variant unconfirmed'}` : '4 MB flash / disabled PSRAM defaults; variant unconfirmed'}. Compilation is not a physical board test.`
         : '';
-    if (!input.simulate) return result(true, `${buildOutput}\nBuild complete.${variant}`);
+    if (!input.simulate) {
+      if (retained) {
+        const artifactId = await hashBuild(directory, buildKey(project));
+        retained.directory = directory;
+        retained.artifact = {
+          id: artifactId,
+          buildKey: buildKey(project),
+          target: `${board.ref} (${board.id}) · ${part.name}`,
+          configuration: fqbn,
+          createdAt: Date.now(),
+          files: project.files.map((f) => ({ path: f.path, content: f.content })),
+        };
+      }
+      return result(true, `${buildOutput}\nBuild complete.${variant}`);
+    }
     const hex = join(build, 'sketch.ino.hex');
     await access(hex);
     const trace = join(directory, 'gpio.vcd');
@@ -311,7 +333,7 @@ export async function runToolchain(
       }
     }
     const scope =
-      '\nCompiled ATmega2560 instructions · 16 MHz · 3 s wall-time sample. UART text is firmware output. GPIO tracing is digital MCU state; external wires, LED, resistor, supply and analog behavior are not simulated. Upstream support above 128 KB flash is preliminary.';
+      '\nCompiled ATmega2560 instructions · 16 MHz · 3 s wall-time sample. UART text is firmware output. GPIO tracing is digital MCU state; external wiring, sensors (AS5600/ITR9608), servos, LEDs, resistors, potentiometers, supply and analog behavior are not simulated. Upstream support above 128 KB flash is preliminary.';
     const executionOutput = `${buildOutput}\n\nMCU execution / simavr\n${simulated.output}${waveform}${scope}`;
     if (simulated.cancelled) return result(false, `${executionOutput}\nCancelled.`);
     if (simulated.truncated)
@@ -352,6 +374,86 @@ export async function runToolchain(
         : `Local execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
     );
   } finally {
-    if (directory) await rm(directory, { recursive: true, force: true });
+    if (directory && !retained?.directory) await rm(directory, { recursive: true, force: true });
   }
+}
+
+/** Private main-process immutable artifact; no arbitrary path is accepted from IPC. */
+export interface RetainedBuild {
+  artifact: PreparedArtifact;
+  directory: string;
+  result: RunResult;
+  dispose(): Promise<void>;
+}
+export async function prepareFirmwareArtifact(
+  project: Project,
+  signal: AbortSignal,
+): Promise<RetainedBuild> {
+  const retained: { directory?: string; artifact?: PreparedArtifact } = {};
+  const result = await runToolchain(
+    { project, requestId: 'prepare-upload', simulate: false },
+    signal,
+    retained,
+  );
+  if (!result.success || !retained.directory || !retained.artifact) throw new Error(result.output);
+  const directory = retained.directory;
+  return {
+    artifact: retained.artifact,
+    directory,
+    result,
+    dispose: () => rm(directory, { recursive: true, force: true }),
+  };
+}
+async function hashBuild(directory: string, key: string) {
+  const hash = createHash('sha256').update(key);
+  const root = join(directory, 'build');
+  async function visit(path: string, prefix: string) {
+    for (const entry of (await readdir(path, { withFileTypes: true })).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    )) {
+      const relative = prefix + entry.name;
+      if (entry.isSymbolicLink()) throw new Error('Artifact contains a symbolic link.');
+      if (entry.isDirectory()) await visit(join(path, entry.name), relative + '/');
+      else if (entry.isFile()) {
+        const content = await readFile(join(path, entry.name));
+        hash.update(JSON.stringify([relative, content.length])).update(content);
+      }
+    }
+  }
+  await visit(root, '');
+  return hash.digest('hex');
+}
+export async function uploadFirmware(
+  build: RetainedBuild,
+  device: DevicePort,
+  signal: AbortSignal,
+) {
+  if ((await hashBuild(build.directory, build.artifact.buildKey)) !== build.artifact.id)
+    throw new Error('Prepared artifact changed; programming approval is invalid.');
+  const cli = await arduinoPath();
+  if (!cli) throw new Error('Arduino CLI is unavailable.');
+  const confinement = await prepareConfinement(build.directory, localToolRoot, device.path);
+  return runBoundedProcess(
+    confinement.launcher,
+    [
+      ...confinement.prefix,
+      cli,
+      '--config-file',
+      confinement.config,
+      'upload',
+      '--fqbn',
+      build.artifact.configuration,
+      '--port',
+      device.path,
+      '--input-dir',
+      join(build.directory, 'build'),
+      join(build.directory, 'sketch'),
+    ],
+    {
+      cwd: build.directory,
+      signal,
+      timeoutMs: 120000,
+      environment: { ...safeEnvironment(), TMPDIR: confinement.tmp },
+    },
+  );
 }

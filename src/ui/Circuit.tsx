@@ -14,14 +14,30 @@ import {
   type Node,
   type Edge,
   type Connection,
+  type EdgeProps,
+  BaseEdge,
+  ControlButton,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Plus, MousePointer2, Move, Trash2, X, Search, ExternalLink, RotateCw } from 'lucide-react';
+import {
+  Plus,
+  MousePointer2,
+  Move,
+  Trash2,
+  X,
+  Search,
+  ExternalLink,
+  RotateCw,
+  CheckCircle2,
+  CornerUpRight,
+  Scan,
+} from 'lucide-react';
 import { partById, searchParts } from '../parts/catalog';
 import type { Part, Terminal, Component, View } from '../domain/schema';
 import { useWorkspace, selectedIds, uid } from './store';
 import { Badge, IconButton } from './primitives';
 import { deriveNets, netFor } from '../domain/topology';
+import { routeWires, routePath, routeBounds, type WireRoute } from './routing';
 
 type PinPosition = { x: number; y: number; side: Position };
 function baseGeometry(
@@ -40,13 +56,61 @@ function baseGeometry(
     };
   if (part.kind === 'led')
     return {
-      width: 80,
-      height: 108,
+      width: 56,
+      height: 100,
       pins: {
-        a: { x: 20, y: 108, side: Position.Bottom },
-        k: { x: 60, y: 108, side: Position.Bottom },
+        a: { x: 16, y: 100, side: Position.Bottom },
+        k: { x: 40, y: 100, side: Position.Bottom },
       },
     };
+  if (part.kind === 'breadboard') {
+    for (const t of part.terminals) {
+      const match = /^([a-j])(\d+)$/.exec(t.id);
+      if (match) {
+        const col = match[1].charCodeAt(0) - 97;
+        pins[t.id] = {
+          x: 30 + (col < 5 ? col : col + 2) * 13,
+          y: 35 + (Number(match[2]) - 1) * 13,
+          side: col < 5 ? Position.Left : Position.Right,
+        };
+      } else {
+        const rail = /^(lp|ln|rp|rn)(\d+)$/.exec(t.id);
+        if (rail)
+          pins[t.id] = {
+            x: ({ lp: 0, ln: 13, rp: 199, rn: 212 } as Record<string, number>)[rail[1]],
+            y: 35 + (Number(rail[2]) - 1) * 16,
+            side: rail[1][0] === 'l' ? Position.Left : Position.Right,
+          };
+      }
+    }
+    return { width: 212, height: 870, pins };
+  }
+  if (part.kind !== 'board') {
+    const layouts: Record<string, string[][]> = {
+      encoder: [
+        ['vcc', 'out', 'gnd'],
+        ['dir', 'scl', 'sda', 'gpo'],
+      ],
+      servo: [['power', 'gnd', 'signal'], []],
+      potentiometer: [['p1'], ['wiper', 'p2']],
+      photointerruptor: [
+        ['a', 'k'],
+        ['c', 'e'],
+      ],
+    };
+    const rows = layouts[part.kind] ?? [part.terminals.map((t) => t.id), []];
+    rows.forEach((row, side) =>
+      row.forEach(
+        (id, i) =>
+          (pins[id] = {
+            x: side ? 130 : 0,
+            y: 28 + i * 25,
+            side: side ? Position.Right : Position.Left,
+          }),
+      ),
+    );
+    return { width: 130, height: 130, pins };
+  }
   if (part.id === 'esp32-s3-devkitc1-v11') {
     for (const t of part.terminals)
       pins[t.id] = {
@@ -82,7 +146,7 @@ function baseGeometry(
     (id, i) => (pins[id] = { x: 660, y: 10 + i * 17, side: Position.Right }),
   );
   ['5v3', ...Array.from({ length: 16 }, (_, i) => `d${23 + i * 2}`), 'gnd5'].forEach(
-    (id, i) => (pins[id] = { x: 704, y: 10 + i * 17, side: Position.Right }),
+    (id, i) => (pins[id] = { x: 704, y: 18.5 + i * 17, side: Position.Right }),
   );
   return { width: 704, height: 310, pins };
 }
@@ -104,7 +168,7 @@ function geometry(part: Part, view: View, rotation = 0) {
   }
   return g;
 }
-function Artwork({ part, view }: { part: Part; view: View }) {
+function Artwork({ part, view, component }: { part: Part; view: View; component?: Component }) {
   if (part.kind === 'resistor')
     return (
       <svg width="130" height="54" viewBox="0 0 130 54">
@@ -122,51 +186,156 @@ function Artwork({ part, view }: { part: Part; view: View }) {
         ) : (
           <>
             <rect x="28" y="13" width="74" height="28" rx="10" fill="var(--resistor)" />
-            {[40, 48, 56, 74, 87].map((x, i) => (
-              <rect
-                key={x}
-                x={x}
-                y="14"
-                width="5"
-                height="26"
-                fill={['#b76431', '#b76431', '#20272c', '#20272c', '#775441'][i]}
-              />
-            ))}
+            {part.id === 'generic-resistor' ? (
+              <text x="65" y="32" textAnchor="middle" fill="var(--chip)" fontSize="10">
+                {component?.config.resistanceOhms ?? 330} Ω
+              </text>
+            ) : (
+              [40, 48, 56, 74, 87].map((x, i) => (
+                <rect
+                  key={x}
+                  x={x}
+                  y="14"
+                  width="5"
+                  height="26"
+                  fill={
+                    [
+                      'var(--band-orange)',
+                      'var(--band-orange)',
+                      'var(--band-black)',
+                      'var(--band-black)',
+                      'var(--band-brown)',
+                    ][i]
+                  }
+                />
+              ))
+            )}
           </>
         )}
       </svg>
     );
-  if (part.kind === 'led')
+  if (part.kind === 'led') {
+    const color = component?.config.ledColor ?? 'red';
     return (
-      <svg width="80" height="108" viewBox="0 0 80 108">
-        {view === 'wiring' && (
-          <path d="M20 60V108M60 60V108" stroke="var(--metal)" strokeWidth="3" />
-        )}
+      <svg width="56" height="100" viewBox="0 0 56 100">
         {view === 'schematic' ? (
-          <>
-            <path
-              d="M20 108V50H30 M30 36V64L54 50Z M54 34V66 M54 50H60V108 M47 28L58 17 M53 17H58V22 M58 35L69 24 M64 24H69V29"
-              fill="none"
-              stroke="var(--text)"
-              strokeWidth="2"
-            />
-          </>
+          <path
+            d="M16 100V42H20 M20 30V54L37 42Z M37 28V56 M37 42H40V100 M32 23L43 12 M38 12H43V17 M42 29L52 19 M47 19H52V24"
+            fill="none"
+            stroke="var(--text)"
+            strokeWidth="2"
+          />
         ) : (
           <>
-            <path d="M14 61V39A26 26 0 0 1 66 39V61Z" fill="var(--red)" opacity=".8" />
-            <rect x="10" y="60" width="60" height="8" rx="3" fill="var(--red)" />
+            <path d="M16 50V100M40 50V100" stroke="var(--metal)" strokeWidth="3" />
             <path
-              d="M24 43V31"
+              d="M12 53V32A16 20 0 0 1 44 32V53Z"
+              fill={`var(--led-${color}, var(--red))`}
+              opacity=".85"
+            />
+            <rect
+              x="9"
+              y="52"
+              width="38"
+              height="6"
+              rx="2"
+              fill={`var(--led-${color}, var(--red))`}
+            />
+            <path
+              d="M20 33V24"
               stroke="var(--text)"
-              opacity=".35"
-              strokeWidth="4"
+              opacity=".4"
+              strokeWidth="3"
               strokeLinecap="round"
             />
-            <text x="57" y="88" fill="var(--muted)" fontSize="9">
+            <text x="40" y="81" fill="var(--muted)" fontSize="9">
               K
             </text>
           </>
         )}
+      </svg>
+    );
+  }
+  if (part.kind === 'breadboard') {
+    const g = baseGeometry(part, view);
+    return (
+      <svg width={g.width} height={g.height} className="board-art">
+        <rect width={g.width} height={g.height} rx="5" fill="var(--raised)" stroke="var(--metal)" />
+        <rect x="91" y="15" width="26" height="840" fill="var(--canvas)" />
+        {Object.entries(g.pins).map(([id, p]) => (
+          <circle key={id} cx={p.x} cy={p.y} r="2.5" fill="var(--canvas)" />
+        ))}
+        <text x="106" y="863" textAnchor="middle" fill="var(--text)" fontSize="10">
+          BB830
+        </text>
+        {'abcdefghij'.split('').map((label, i) => (
+          <text
+            key={label}
+            x={30 + (i < 5 ? i : i + 2) * 13}
+            y="23"
+            textAnchor="middle"
+            fill="var(--muted)"
+            fontSize="8"
+          >
+            {label.toUpperCase()}
+          </text>
+        ))}
+        {Array.from({ length: 13 }, (_, i) => i * 5 + 1)
+          .filter((n) => n <= 63)
+          .map((n) => (
+            <text
+              key={n}
+              x="106"
+              y={38 + (n - 1) * 13}
+              textAnchor="middle"
+              fill="var(--muted)"
+              fontSize="8"
+            >
+              {n}
+            </text>
+          ))}
+        <path d="M0 28V827M199 28V827" stroke="var(--danger)" strokeWidth="1" opacity=".5" />
+        <path d="M13 28V827M212 28V827" stroke="var(--blue)" strokeWidth="1" opacity=".5" />
+      </svg>
+    );
+  }
+  if (part.kind !== 'board')
+    return (
+      <svg width="130" height="130" viewBox="0 0 130 130" className="board-art">
+        <rect
+          x="12"
+          y="9"
+          width="106"
+          height="112"
+          rx="5"
+          fill={part.kind === 'servo' ? 'var(--chip)' : 'var(--board)'}
+          stroke="var(--metal)"
+        />
+        {part.kind === 'encoder' && (
+          <>
+            <circle cx="65" cy="56" r="20" fill="var(--metal)" />
+            <rect x="53" y="44" width="24" height="24" fill="var(--chip)" />
+          </>
+        )}
+        {part.kind === 'potentiometer' && <circle cx="65" cy="53" r="23" fill="var(--metal)" />}
+        {part.kind === 'photointerruptor' && (
+          <path d="M30 30H48V78H82V30H100V96H30Z" fill="var(--chip)" stroke="var(--metal)" />
+        )}
+        {part.kind === 'servo' && (
+          <>
+            <circle cx="65" cy="48" r="19" fill="var(--metal)" />
+            <path d="M30 48H100" stroke="var(--text)" strokeWidth="8" />
+          </>
+        )}
+        <text x="65" y="111" textAnchor="middle" fill="var(--text)" fontSize="11">
+          {part.kind === 'encoder'
+            ? 'AS5600'
+            : part.kind === 'servo'
+              ? 'SG90'
+              : part.kind === 'photointerruptor'
+                ? 'ITR9608'
+                : 'Potentiometer'}
+        </text>
       </svg>
     );
   const esp = part.id.startsWith('esp32');
@@ -176,7 +345,7 @@ function Artwork({ part, view }: { part: Part; view: View }) {
       <rect
         x="1"
         y="1"
-        width={width - 2}
+        width={esp ? width - 2 : 628}
         height={height - 2}
         rx={esp ? 5 : 13}
         fill={view === 'schematic' ? 'var(--panel)' : 'var(--board)'}
@@ -290,6 +459,11 @@ function PartNodeView({ data }: NodeProps<PartNode>) {
   const select = useWorkspace((s) => s.select),
     selection = useWorkspace((s) => s.selection);
   const { component: c, part, view, rotation } = data;
+  const diagnostics = useWorkspace((s) => s.diagnostics);
+  const [showIssue, setShowIssue] = useState(false);
+  const issues = diagnostics.filter(
+    (d) => d.objectIds.includes(c.id) && (d.severity === 'error' || d.severity === 'warning'),
+  );
   const update = useUpdateNodeInternals();
   useEffect(() => update(c.id), [rotation, view, c.id, update]);
   const g = geometry(part, view, rotation),
@@ -304,9 +478,28 @@ function PartNodeView({ data }: NodeProps<PartNode>) {
           : [0, 0];
   return (
     <div
-      className={`part-node ${data.highlighted ? 'highlighted' : ''}`}
+      className={`part-node ${part.kind} ${data.highlighted ? 'highlighted' : ''}`}
       style={{ width: g.width, height: g.height }}
     >
+      {issues.length > 0 && (
+        <button
+          className={`part-issue ${issues.some((d) => d.severity === 'error') ? 'error' : 'warning'}`}
+          aria-label={`${c.ref} issues`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowIssue(!showIssue);
+          }}
+        >
+          <CornerUpRight size={12} />
+        </button>
+      )}
+      {showIssue && (
+        <div className="part-issue-message nodrag">
+          {issues.map((d) => (
+            <p key={d.id}>{d.title}</p>
+          ))}
+        </div>
+      )}
       <div className="part-name">
         <strong>{c.ref}</strong>
         <span>{c.config.label ?? part.name}</span>
@@ -319,7 +512,7 @@ function PartNodeView({ data }: NodeProps<PartNode>) {
           transformOrigin: '0 0',
         }}
       >
-        <Artwork part={part} view={view} />
+        <Artwork part={part} view={view} component={c} />
       </div>
       {part.terminals.map((t) => {
         const pin = g.pins[t.id];
@@ -369,6 +562,120 @@ function PartNodeView({ data }: NodeProps<PartNode>) {
     </div>
   );
 }
+function RoutedEdge({ id, data, selected }: EdgeProps<Edge<{ route: WireRoute; color: string }>>) {
+  const [hover, setHover] = useState(false),
+    [showIssue, setShowIssue] = useState(false);
+  const issues = useWorkspace((s) => s.diagnostics).filter(
+    (d) => d.objectIds.includes(id) && d.severity === 'error',
+  );
+  const r = data?.route;
+  if (!r) return null;
+  const path = routePath(r.points),
+    active = selected || hover;
+  return (
+    <g
+      className="wire-trace"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <path
+        d={path}
+        stroke="var(--canvas)"
+        strokeWidth={active ? 9 : 7}
+        fill="none"
+        pointerEvents="none"
+      />
+      <BaseEdge
+        id={id}
+        path={path}
+        interactionWidth={20}
+        style={{
+          stroke: `var(--wire-${data?.color})`,
+          strokeWidth: active ? 3 : 2,
+          strokeDasharray: r.failed ? '5 4' : undefined,
+        }}
+      />
+      {r.junctions?.map((p, i) => (
+        <circle
+          key={`junction-${i}`}
+          cx={p.x}
+          cy={p.y}
+          r="3"
+          fill="var(--accent)"
+          pointerEvents="none"
+        />
+      ))}
+      {active &&
+        r.points
+          .filter((_, i) => i === 0 || i === r.points.length - 1)
+          .map((p, i) => (
+            <circle
+              key={i}
+              pointerEvents="none"
+              cx={p.x}
+              cy={p.y}
+              r="5"
+              fill="var(--canvas)"
+              stroke="var(--accent)"
+              strokeWidth="2"
+            />
+          ))}
+      {issues.length > 0 && (
+        <g
+          role="button"
+          tabIndex={0}
+          aria-label="Connection errors"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowIssue(!showIssue);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setShowIssue(!showIssue);
+            }
+          }}
+          transform={`translate(${r.points[Math.floor(r.points.length / 2)].x},${r.points[Math.floor(r.points.length / 2)].y - 11})`}
+        >
+          <circle r="8" fill="var(--panel)" stroke="var(--danger)" />
+          <text textAnchor="middle" y="4" fontSize="12" fill="var(--danger)">
+            ↪
+          </text>
+          {showIssue && (
+            <foreignObject x="12" y="-12" width="220" height="90">
+              <div className="part-issue-message">
+                {issues.map((d) => (
+                  <p key={d.id}>{d.title}</p>
+                ))}
+              </div>
+            </foreignObject>
+          )}
+        </g>
+      )}
+      {r.failed && r.destination && (
+        <circle
+          cx={r.destination.x}
+          cy={r.destination.y}
+          r="5"
+          fill="var(--canvas)"
+          stroke="var(--warning)"
+          strokeDasharray="2 2"
+        />
+      )}
+      {r.failed && (
+        <text
+          x={r.points.at(-1)!.x + 6}
+          y={r.points.at(-1)!.y - 7}
+          fill="var(--warning)"
+          fontSize="12"
+        >
+          Route blocked · move part
+        </text>
+      )}
+    </g>
+  );
+}
+const edgeTypes = { routed: RoutedEdge };
 const nodeTypes = { part: PartNodeView };
 export function Circuit() {
   return (
@@ -385,8 +692,9 @@ function CircuitCanvas() {
     apply = useWorkspace((s) => s.apply),
     library = useWorkspace((s) => s.library);
   const flow = useReactFlow();
-  const [dragNodes, setDragNodes] = useState<Node[] | null>(null);
+  const [dragNodes, setDragNodes] = useState<PartNode[] | null>(null);
   const [pan, setPan] = useState(false);
+  const [needsFit, setNeedsFit] = useState(false);
   const ids = selectedIds(selection);
   const nodes = useMemo<PartNode[]>(
     () =>
@@ -412,16 +720,60 @@ function CircuitCanvas() {
       }),
     [project, view, selection],
   );
+  const displayed = dragNodes ?? nodes;
+  const obstacles = displayed.map((n) => ({
+    id: n.id,
+    x: n.position.x,
+    y: n.position.y,
+    width: Number(n.style?.width ?? 0),
+    height: Number(n.style?.height ?? 0),
+  }));
+  const routes = routeWires(
+    project.wires.flatMap((w) => {
+      const terminal = (ep: typeof w.from) => {
+        const n = displayed.find((n) => n.id === ep.componentId);
+        if (!n) return null;
+        const g = geometry(partById(n.data.component.partId), view, n.data.rotation);
+        const p = g.pins[ep.terminalId];
+        return p
+          ? {
+              componentId: ep.componentId,
+              terminalId: ep.terminalId,
+              x: n.position.x + p.x,
+              y: n.position.y + p.y,
+              side: p.side,
+            }
+          : null;
+      };
+      const from = terminal(w.from),
+        to = terminal(w.to);
+      return from && to ? [{ id: w.id, from, to }] : [];
+    }),
+    obstacles,
+  );
+  const fitRoutes = useCallback(
+    () => void flow.fitBounds(routeBounds(routes, obstacles), { padding: 0.15, duration: 200 }),
+    [flow, routes, obstacles],
+  );
+  useEffect(() => {
+    if (needsFit) {
+      const frame = requestAnimationFrame(() => {
+        fitRoutes();
+        setNeedsFit(false);
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [needsFit, fitRoutes]);
   const edges: Edge[] = project.wires.map((w) => ({
     id: w.id,
     source: w.from.componentId,
     sourceHandle: w.from.terminalId,
     target: w.to.componentId,
     targetHandle: w.to.terminalId,
-    type: 'smoothstep',
+    type: 'routed',
     selected: ids.includes(w.id),
-    style: { stroke: `var(--wire-${w.color})`, strokeWidth: ids.includes(w.id) ? 3 : 2 },
-    interactionWidth: 20,
+    zIndex: 2,
+    data: { route: routes.find((r) => r.id === w.id), color: w.color },
   }));
   const connect = useCallback(
     (c: Connection) => {
@@ -495,6 +847,7 @@ function CircuitCanvas() {
           nodes={dragNodes ?? nodes}
           edges={edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           connectionMode={ConnectionMode.Loose}
           onConnect={connect}
           onNodeClick={(_e, n) => select({ kind: 'component', id: n.id })}
@@ -502,7 +855,7 @@ function CircuitCanvas() {
           onPaneClick={() => select(null)}
           onNodesChange={(changes) => {
             if (changes.some((c) => c.type === 'position'))
-              setDragNodes((current) => applyNodeChanges(changes, current ?? nodes));
+              setDragNodes((current) => applyNodeChanges<PartNode>(changes, current ?? nodes));
           }}
           onNodeDragStop={(_e, n) => {
             apply('Move component', [
@@ -515,7 +868,9 @@ function CircuitCanvas() {
             ]);
             setDragNodes(null);
           }}
-          fitView
+          onInit={() =>
+            void flow.fitBounds(routeBounds(routes, obstacles), { padding: 0.15, duration: 0 })
+          }
           fitViewOptions={{ padding: 0.22, maxZoom: 1.1 }}
           minZoom={0.25}
           maxZoom={2.5}
@@ -529,10 +884,14 @@ function CircuitCanvas() {
           connectionDragThreshold={4}
           nodeDragThreshold={5}
           colorMode="dark"
-          proOptions={{ hideAttribution: false }}
+          proOptions={{ hideAttribution: true }}
         >
           <Background color="var(--border)" gap={20} size={1} />
-          <Controls showInteractive={false} fitViewOptions={{ padding: 0.3, maxZoom: 1.1 }} />
+          <Controls showInteractive={false} showFitView={false}>
+            <ControlButton title="Fit view" aria-label="Fit view" onClick={fitRoutes}>
+              <Scan size={14} />
+            </ControlButton>
+          </Controls>
         </ReactFlow>
         {!project.components.length && (
           <div className="canvas-empty">
@@ -543,16 +902,10 @@ function CircuitCanvas() {
             </button>
           </div>
         )}
-        <div className="canvas-caption">
-          <span>DOCUMENTED DESIGN</span>
-          <span>
-            {project.components.length} parts · {project.wires.length} wires
-          </span>
-        </div>
         {library && (
           <PartLibrary
             onAdded={() => {
-              setTimeout(() => void flow.fitView({ padding: 0.25, duration: 250 }), 50);
+              setNeedsFit(true);
             }}
           />
         )}
@@ -563,6 +916,7 @@ function CircuitCanvas() {
 }
 function PartLibrary({ onAdded }: { onAdded: () => void }) {
   const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('All');
   const apply = useWorkspace((s) => s.apply);
   const project = useWorkspace((s) => s.project);
   return (
@@ -579,76 +933,110 @@ function PartLibrary({ onAdded }: { onAdded: () => void }) {
         <input
           aria-label="Search parts"
           autoFocus
-          placeholder="Name, part number, capability…"
+          placeholder="Search parts"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
-      <div className="part-results">
-        {searchParts(query).map((p) => (
-          <button
-            key={p.id}
-            className="part-result"
-            onClick={() => {
-              const id = uid('part'),
-                n = project.components.length + 1;
-              const refPrefix = p.kind === 'board' ? 'U' : p.kind === 'led' ? 'D' : 'R';
-              let ref = `${refPrefix}${n}`;
-              while (project.components.some((c) => c.ref === ref)) ref += 'a';
-              const commands: any[] = [
-                {
-                  type: 'addComponent',
-                  component: { id, partId: p.id, partVersion: 1, ref, config: {} },
-                  placement: {
-                    x: project.components.length
-                      ? Math.min(
-                          9000,
-                          Math.max(
-                            ...project.components.map((c) => {
-                              const at = project.layouts.wiring[c.id];
-                              return (
-                                at.x + geometry(partById(c.partId), 'wiring', at.rotation).width
-                              );
-                            }),
-                          ) + 80,
-                        )
-                      : 40,
-                    y: 80,
-                    rotation: 0,
-                  },
-                },
-              ];
-              if (!project.targetBoardId && p.kind === 'board')
-                commands.push({ type: 'setTarget', id });
-              apply(`Add ${p.name}`, commands);
-              useWorkspace.setState({ library: false, selection: { kind: 'component', id } });
-              onAdded();
-            }}
-          >
-            <div className="part-preview">
-              <Artwork part={p} view="schematic" />
-            </div>
-            <div>
-              <strong>{p.name}</strong>
-              <small>
-                {p.manufacturer} · {p.mpn}
-              </small>
-              <div className="row wrap">
-                <Badge tone={p.verifiedMapping ? 'accent' : 'warning'}>
-                  {p.verifiedMapping ? 'Pin map verified' : 'Provisional map'}
-                </Badge>
-                <Badge>{p.constraints ? 'Known constraints' : 'Constraints unknown'}</Badge>
-                {p.firmware && <Badge>Compile</Badge>}
-                <Badge>
-                  {p.simulation === 'simavr-external' ? 'MCU model' : 'No execution model'}
-                </Badge>
-              </div>
-            </div>
-            <Plus size={14} />
+      <div className="parts-categories">
+        {[
+          'All',
+          'Boards',
+          'Prototyping',
+          'Passive Components',
+          'Indicators',
+          'Sensors',
+          'Actuators',
+        ].map((c) => (
+          <button key={c} className={category === c ? 'active' : ''} onClick={() => setCategory(c)}>
+            {c}
           </button>
         ))}
       </div>
-      <small>4 exact packages · local library</small>
+      <div className="part-results">
+        {searchParts(query)
+          .filter((p) => !['kingbright-wp7113id', 'vishay-mrs25-330'].includes(p.id))
+          .filter(
+            (p) =>
+              category === 'All' ||
+              (p.category ??
+                (p.kind === 'board'
+                  ? 'Boards'
+                  : p.kind === 'led'
+                    ? 'Indicators'
+                    : 'Passive Components')) === category,
+          )
+          .map((p) => (
+            <button
+              key={p.id}
+              className="part-result"
+              onClick={() => {
+                const id = uid('part'),
+                  n = project.components.length + 1;
+                const refPrefix =
+                  p.kind === 'board'
+                    ? 'U'
+                    : p.kind === 'led'
+                      ? 'D'
+                      : p.kind === 'resistor'
+                        ? 'R'
+                        : p.kind === 'breadboard'
+                          ? 'BB'
+                          : 'P';
+                let ref = `${refPrefix}${n}`;
+                while (project.components.some((c) => c.ref === ref)) ref += 'a';
+                const commands: any[] = [
+                  {
+                    type: 'addComponent',
+                    component: { id, partId: p.id, partVersion: 1, ref, config: {} },
+                    placement: {
+                      x: project.components.length
+                        ? Math.min(
+                            9000,
+                            Math.max(
+                              ...project.components.map((c) => {
+                                const at = project.layouts.wiring[c.id];
+                                return (
+                                  at.x + geometry(partById(c.partId), 'wiring', at.rotation).width
+                                );
+                              }),
+                            ) + 80,
+                          )
+                        : 40,
+                      y: 80,
+                      rotation: 0,
+                    },
+                  },
+                ];
+                if (!project.targetBoardId && p.kind === 'board')
+                  commands.push({ type: 'setTarget', id });
+                apply(`Add ${p.name}`, commands);
+                useWorkspace.setState({ library: false, selection: { kind: 'component', id } });
+                onAdded();
+              }}
+            >
+              <div className="part-preview">
+                <Artwork part={p} view="schematic" />
+              </div>
+              <div>
+                <strong>
+                  {p.name}{' '}
+                  {p.verifiedMapping && (
+                    <span title="Documented terminal mapping; execution and electrical coverage vary">
+                      <CheckCircle2
+                        className="verified-part"
+                        size={12}
+                        tabIndex={0}
+                        aria-label="Documented terminal mapping; execution and electrical coverage vary"
+                      />
+                    </span>
+                  )}
+                </strong>
+              </div>
+              <Plus size={14} />
+            </button>
+          ))}
+      </div>
     </aside>
   );
 }
@@ -676,8 +1064,8 @@ function Inspector() {
           </IconButton>
         </div>
         <p className="mono">
-          {w.from.componentId}:{w.from.terminalId}
-          <br />↳ {w.to.componentId}:{w.to.terminalId}
+          {project.components.find((c) => c.id === w.from.componentId)?.ref}.{w.from.terminalId}
+          <br />↳ {project.components.find((c) => c.id === w.to.componentId)?.ref}.{w.to.terminalId}
         </p>
         <button
           className="danger secondary"
@@ -709,41 +1097,36 @@ function Inspector() {
           <X />
         </IconButton>
       </div>
-      <strong>{part.name}</strong>
-      <small>
-        {part.mpn} · {part.revision}
-      </small>
+      {!pin && <strong>{part.name}</strong>}
       {pin ? (
-        <>
-          <div className="pin-facts">
-            <span>GPIO</span>
-            <span className="mono">{pin.gpio ?? '—'}</span>
-            <span>Firmware</span>
-            <span className="mono">{pin.firmwareAlias ?? '—'}</span>
-            <span>Type</span>
-            <span>{pin.kind}</span>
-            {pin.header && (
-              <>
-                <span>Header</span>
-                <span>
-                  {pin.header}
-                  {pin.physicalPin ? ` · pin ${pin.physicalPin}` : ''}
-                </span>
-              </>
-            )}
-            {pin.voltage !== undefined && (
-              <>
-                <span>Nominal</span>
-                <span>{pin.voltage} V</span>
-              </>
-            )}
-          </div>
-          <div className="row wrap">
-            {pin.capabilities.map((c) => (
-              <Badge key={c}>{c}</Badge>
-            ))}
-          </div>
-        </>
+        <div className="pin-facts terminal-popover">
+          {pin.function && (
+            <>
+              <span>Function</span>
+              <span>{pin.function}</span>
+            </>
+          )}
+          <span>Type</span>
+          <span>{pin.kind === 'gpio' ? 'Digital I/O' : pin.kind}</span>
+          {pin.gpio && (
+            <>
+              <span>GPIO</span>
+              <span className="mono">{pin.gpio}</span>
+            </>
+          )}
+          {pin.voltage !== undefined && (
+            <>
+              <span>{pin.kind === 'power' ? 'Supply' : 'Logic'}</span>
+              <span>{pin.voltage} V</span>
+            </>
+          )}
+          {pin.requirements && (
+            <>
+              <span>Requirements</span>
+              <span>{pin.requirements}</span>
+            </>
+          )}
+        </div>
       ) : (
         <>
           <label className="field">
@@ -773,6 +1156,7 @@ function Inspector() {
               }}
             />
           </label>
+          <ComponentProperties component={component} part={part} />
           {part.firmware && (
             <button
               className="secondary"
@@ -805,7 +1189,10 @@ function Inspector() {
           ))}
       </details>
       {pin?.kind === 'gpio' && part.firmware && (
-        <BindingEditor key={`${component.id}:${pin.id}`} component={component} pin={pin} />
+        <details>
+          <summary>Advanced</summary>
+          <BindingEditor key={`${component.id}:${pin.id}`} component={component} pin={pin} />
+        </details>
       )}
       {!pin && (
         <button
@@ -829,10 +1216,117 @@ function Inspector() {
           <RotateCw size={13} /> Rotate 90°
         </button>
       )}
-      {part.coverage && <small>{part.coverage}</small>}
-      <small>Illustrative geometry · explicit terminals</small>
+      {!pin && (
+        <details>
+          <summary>Part details</summary>
+          <small>
+            {part.manufacturer} · {part.mpn}
+          </small>
+          <p>{part.coverage ?? part.description}</p>
+        </details>
+      )}
     </aside>
   );
+}
+/** Explicit units only; accepts 330, 330 ohm, 4.7kΩ, 1M. */
+function parseResistance(value: string): number | null {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*([kKmM]?)\s*(?:Ω|ohms?)?\s*$/.exec(value);
+  if (!m) return null;
+  const n =
+    Number(m[1]) *
+    (m[2].toLowerCase() === 'k' ? 1000 : m[2] === 'M' ? 1000000 : m[2] === 'm' ? 0.001 : 1);
+  return n > 0 && n <= 1e12 ? n : null;
+}
+function ComponentProperties({ component: c, part }: { component: Component; part: Part }) {
+  const apply = useWorkspace((s) => s.apply),
+    [error, setError] = useState('');
+  if (['vishay-mrs25-330', 'kingbright-wp7113id'].includes(part.id))
+    return (
+      <small>
+        Exact package values retained. Use a generic LED or resistor for editable assumptions.
+      </small>
+    );
+  if (part.kind === 'resistor' || part.kind === 'potentiometer') {
+    const field = part.kind === 'resistor' ? 'resistanceOhms' : 'potentiometerOhms';
+    return (
+      <label className="field compact-property">
+        Resistance
+        <input
+          key={`${c.id}-${c.config[field]}`}
+          aria-label="Resistance"
+          defaultValue={`${c.config[field] ?? part.resistance ?? (part.kind === 'resistor' ? 330 : 10000)} Ω`}
+          onBlur={(e) => {
+            const v = parseResistance(e.target.value);
+            if (v === null || (part.kind === 'potentiometer' && v > 1e9)) {
+              setError('Enter a positive value in Ω, kΩ or MΩ.');
+              return;
+            }
+            setError('');
+            if (v !== c.config[field])
+              apply('Change resistance', [
+                { type: 'configureComponent', id: c.id, config: { [field]: v } },
+              ]);
+          }}
+        />
+        {error && <small role="alert">{error}</small>}
+      </label>
+    );
+  }
+  if (part.kind === 'led')
+    return (
+      <>
+        <label className="field compact-property">
+          Color
+          <select
+            aria-label="LED color"
+            value={c.config.ledColor ?? 'red'}
+            onChange={(e) =>
+              apply('Change LED color', [
+                {
+                  type: 'configureComponent',
+                  id: c.id,
+                  config: {
+                    ledColor: e.target.value as 'red' | 'green' | 'blue' | 'yellow' | 'white',
+                  },
+                },
+              ])
+            }
+          >
+            {['red', 'green', 'blue', 'yellow', 'white'].map((color) => (
+              <option key={color} value={color}>
+                {color}
+              </option>
+            ))}
+          </select>
+        </label>
+        <details>
+          <summary>Analysis assumptions</summary>
+          <small>Color does not specify forward voltage.</small>
+          {(['forwardVoltageV', 'maxCurrentMa'] as const).map((field) => (
+            <label className="field" key={field}>
+              {field === 'forwardVoltageV' ? 'Forward voltage (V)' : 'Current limit (mA)'}
+              <input
+                type="number"
+                min="0.01"
+                step="0.1"
+                defaultValue={
+                  c.config[field] ??
+                  (field === 'forwardVoltageV' ? (part.forwardV ?? 1.9) : (part.maxCurrentMa ?? 10))
+                }
+                onBlur={(e) => {
+                  const v = Number(e.target.value);
+                  if (v > 0 && v <= (field === 'forwardVoltageV' ? 20 : 1000))
+                    apply('Change LED assumption', [
+                      { type: 'configureComponent', id: c.id, config: { [field]: v } },
+                    ]);
+                }}
+              />
+            </label>
+          ))}
+        </details>
+      </>
+    );
+  return null;
 }
 function BindingEditor({ component, pin }: { component: Component; pin: Terminal }) {
   const project = useWorkspace((s) => s.project),

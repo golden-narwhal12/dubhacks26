@@ -5,7 +5,7 @@ await build({
   platform: 'node',
   format: 'cjs',
   outfile: 'dist-desktop/main.cjs',
-  external: ['electron'],
+  external: ['electron', 'serialport'],
   sourcemap: true,
 });
 await build({

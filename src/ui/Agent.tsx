@@ -4,14 +4,20 @@ import { useWorkspace, uid } from './store';
 import { Badge, IconButton } from './primitives';
 import { providerDefaults } from '../services/bridge';
 import { ChangeReview } from './ChangeReview';
+import { buildKey } from '../domain/semantics';
 import { buildIssueId } from '../services/participation';
 export function Agent() {
   const s = useWorkspace();
-  const [prompt, setPrompt] = useState('');
-  const [dismissed, setDismissed] = useState<string[]>([]);
+  const prompt=s.agentDraft,setPrompt=(agentDraft:string)=>useWorkspace.setState({agentDraft});
+  const dismissed=s.dismissedSuggestions,setDismissed=(dismissedSuggestions:string[])=>useWorkspace.setState({dismissedSuggestions});
   const pinIssue = s.diagnostics.find((d) => d.fix && d.revision === s.project.revision);
   const failedBuild =
-    s.result && !s.result.success && !s.result.cancelled && s.result.revision === s.project.revision
+    s.result &&
+    !s.result.success &&
+    !s.result.cancelled &&
+    (s.result.buildKey
+      ? s.result.buildKey === buildKey(s.project)
+      : s.result.revision === s.project.revision)
       ? s.result
       : null;
   const suggestionKey = pinIssue
@@ -50,6 +56,13 @@ export function Agent() {
             </option>
           ))}
         </select>
+        <button
+          className="agent-model"
+          title={s.model}
+          onClick={() => useWorkspace.setState({ settings: true })}
+        >
+          {s.model}
+        </button>
         <span className="spacer" />
         <IconButton
           title="AI connections and participation"
@@ -64,27 +77,14 @@ export function Agent() {
             <div className="agent-mark">
               <Sparkles size={21} />
             </div>
-            <h2>Hardware meets firmware.</h2>
-            <p>
-              Inspect a connection. Allocate a pin.
-              <br />
-              Make the circuit and code agree.
-            </p>
-            <button
-              className="suggestion"
-              onClick={() => begin('Inspect the indicator wiring and explain the pin binding.')}
-            >
-              <ChevronRight size={14} /> Inspect this project
-            </button>
-            {!configured && (
-              <div className="connection-note">
+            {!configured ? (
+              <>
                 <span>No API key connected.</span>
                 <button onClick={() => useWorkspace.setState({ settings: true })}>
-                  Connect a provider <ChevronRight size={12} />
+                  Connect a provider
                 </button>
-                <small>Editing and local checks work offline.</small>
-              </div>
-            )}
+              </>
+            ) : null}
           </div>
         ) : (
           s.messages.map((m) => (
@@ -92,7 +92,14 @@ export function Agent() {
               <div className="message-label">
                 {m.role === 'user' ? 'You' : m.role === 'activity' ? 'Tool activity' : 'Trace'}
               </div>
-              <p>{m.text}</p>
+              {m.role === 'activity' ? (
+                <details>
+                  <summary>{m.text.split('\n')[0]}</summary>
+                  {m.details && <pre>{m.details}</pre>}
+                </details>
+              ) : (
+                <p>{m.text}</p>
+              )}
               {m.objectIds?.length && (
                 <div className="row wrap">
                   {m.objectIds.map((id) => (
@@ -106,7 +113,7 @@ export function Agent() {
                   ))}
                 </div>
               )}
-              {m.details && (
+              {m.details && m.role !== 'activity' && (
                 <details>
                   <summary>Details</summary>
                   <pre>{m.details}</pre>
@@ -266,10 +273,6 @@ export function Agent() {
           )}
         </div>
       </form>
-      <div className="agent-footer">
-        <span>{s.model}</span>
-        <span>{s.requests} task requests</span>
-      </div>
     </div>
   );
 }

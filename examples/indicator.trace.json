@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "indicator-demo",
   "name": "Indicator / Mega 2560",
   "revision": 0,
@@ -13,14 +13,14 @@
     },
     {
       "id": "resistor",
-      "partId": "vishay-mrs25-330",
+      "partId": "generic-resistor",
       "partVersion": 1,
       "ref": "R1",
       "config": {}
     },
     {
       "id": "led",
-      "partId": "kingbright-wp7113id",
+      "partId": "generic-led",
       "partVersion": 1,
       "ref": "D1",
       "config": {
@@ -123,5 +123,7 @@
       "mode": "output"
     }
   ],
-  "targetBoardId": "board"
+  "targetBoardId": "board",
+  "boardSettings": {},
+  "telemetry": []
 }

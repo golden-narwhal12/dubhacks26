@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import {
   BindingSchema,
+  TelemetryMappingSchema,
+  BoardSettingsSchema,
   ComponentSchema,
   EndpointSchema,
   FileSchema,
@@ -64,6 +66,18 @@ export function validateProject(input: unknown): Project {
     if (part.version !== c.partVersion)
       throw new DomainError('VERSION', 'Unsupported part version');
   }
+  unique(
+    p.telemetry.map((m) => m.id),
+    'telemetry mapping',
+  );
+  for (const m of p.telemetry) {
+    if (m.componentId && !p.components.some((c) => c.id === m.componentId))
+      throw new DomainError('REFERENCE', 'Unknown telemetry component');
+    if (m.terminalId) {
+      if (!m.componentId) throw new DomainError('REFERENCE', 'Terminal mapping requires component');
+      terminal(p, { componentId: m.componentId, terminalId: m.terminalId });
+    }
+  }
   const pairs: string[] = [];
   for (const w of p.wires) {
     terminal(p, w.from);
@@ -105,6 +119,9 @@ export const CommandSchema = z.discriminatedUnion('type', [
       placement: PlacementSchema,
     })
     .strict(),
+  z.object({ type: z.literal('setTelemetry'), mapping: TelemetryMappingSchema }).strict(),
+  z.object({ type: z.literal('removeTelemetry'), id: Id }).strict(),
+  z.object({ type: z.literal('setBoardSettings'), settings: BoardSettingsSchema }).strict(),
   z.object({ type: z.literal('removeComponent'), id: Id }).strict(),
   z
     .object({
@@ -112,6 +129,7 @@ export const CommandSchema = z.discriminatedUnion('type', [
       id: Id,
       ref: z.string().min(1).max(48).optional(),
       label: z.string().max(80).optional(),
+      config: ComponentSchema.shape.config.optional(),
     })
     .strict(),
   z
@@ -153,6 +171,16 @@ export function transact(project: Project, input: unknown): Project {
   };
   for (const c of tx.commands) {
     switch (c.type) {
+      case 'setTelemetry':
+        p.telemetry = p.telemetry.filter((m) => m.id !== c.mapping.id);
+        p.telemetry.push(c.mapping);
+        break;
+      case 'removeTelemetry':
+        p.telemetry = p.telemetry.filter((m) => m.id !== c.id);
+        break;
+      case 'setBoardSettings':
+        p.boardSettings = c.settings;
+        break;
       case 'addComponent':
         p.components.push(c.component);
         p.layouts.wiring[c.component.id] = c.placement;
@@ -160,6 +188,7 @@ export function transact(project: Project, input: unknown): Project {
         break;
       case 'removeComponent':
         exists(c.id);
+        p.telemetry = p.telemetry.filter((m) => m.componentId !== c.id);
         p.components = p.components.filter((x) => x.id !== c.id);
         p.wires = p.wires.filter((w) => w.from.componentId !== c.id && w.to.componentId !== c.id);
         p.bindings = p.bindings.filter((b) => b.boardId !== c.id && b.target.componentId !== c.id);
@@ -171,6 +200,7 @@ export function transact(project: Project, input: unknown): Project {
         exists(c.id);
         const obj = p.components.find((x) => x.id === c.id)!;
         if (c.ref !== undefined) obj.ref = c.ref;
+        if (c.config !== undefined) obj.config = { ...obj.config, ...c.config };
         if (c.label !== undefined) obj.config.label = c.label;
         break;
       }
@@ -223,10 +253,12 @@ export function parseProject(text: string) {
       'This file is not valid project JSON. Your current project was preserved.',
     );
   }
-  if (raw && typeof raw === 'object' && 'schemaVersion' in raw && raw.schemaVersion !== 1)
+  if (raw && typeof raw === 'object' && 'schemaVersion' in raw && raw.schemaVersion === 1)
+    raw = { ...raw, schemaVersion: 2, boardSettings: {}, telemetry: [] };
+  if (raw && typeof raw === 'object' && 'schemaVersion' in raw && raw.schemaVersion !== 2)
     throw new DomainError(
       'SCHEMA_VERSION',
-      'This project format is unsupported. Trace currently opens schema version 1.',
+      'This project format is unsupported. Trace currently opens version 2 and migrates version 1.',
     );
   try {
     return validateProject(raw);
@@ -234,7 +266,7 @@ export function parseProject(text: string) {
     if (e instanceof DomainError) throw e;
     throw new DomainError(
       'SCHEMA',
-      'Project data does not match schema version 1. Check required fields and terminal references. Your current project was preserved.',
+      'Project data does not match schema version 2. Check required fields and terminal references. Your current project was preserved.',
     );
   }
 }

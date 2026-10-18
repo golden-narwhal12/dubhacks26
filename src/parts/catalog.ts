@@ -1,4 +1,5 @@
 import type { Part, Terminal, Evidence } from '../domain/schema';
+import { expandedParts } from './expanded';
 
 const megaEvidence: Evidence[] = [
   {
@@ -342,6 +343,7 @@ export const parts: Part[] = [
     assets: { renderer: 'resistor', geometry: 'illustrative' },
   },
 ];
+parts.push(...expandedParts);
 export const partById = (id: string) => {
   const p = parts.find((p) => p.id === id);
   if (!p) throw new Error(`Unsupported part package: ${id}`);

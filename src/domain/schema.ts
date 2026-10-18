@@ -10,7 +10,14 @@ export const ComponentSchema = z
     partVersion: z.literal(1),
     ref: z.string().min(1).max(48),
     config: z
-      .object({ label: z.string().max(80).optional() })
+      .object({
+        label: z.string().max(80).optional(),
+        resistanceOhms: z.number().finite().positive().max(1e12).optional(),
+        ledColor: z.enum(['red', 'green', 'blue', 'yellow', 'white']).optional(),
+        forwardVoltageV: z.number().finite().positive().max(20).optional(),
+        maxCurrentMa: z.number().finite().positive().max(1000).optional(),
+        potentiometerOhms: z.number().finite().positive().max(1e9).optional(),
+      })
       .strict()
       .default({}),
   })
@@ -50,9 +57,36 @@ export const BindingSchema = z
   })
   .strict();
 export type Binding = z.infer<typeof BindingSchema>;
+export const TelemetryMappingSchema = z
+  .object({
+    id: Id,
+    label: z.string().min(1).max(60),
+    parser: z.enum(['json', 'keyvalue']),
+    field: z.string().min(1).max(80),
+    componentId: Id.optional(),
+    terminalId: Id.optional(),
+    units: z.string().max(24).default(''),
+    meaning: z.enum(['measurement', 'command', 'state', 'count', 'raw']).default('raw'),
+    deviceTimestampField: z.string().max(80).optional(),
+    staleAfterMs: z.number().int().min(100).max(3600000).default(3000),
+  })
+  .strict();
+export type TelemetryMapping = z.infer<typeof TelemetryMappingSchema>;
+export const BoardSettingsSchema = z
+  .object({
+    esp32: z
+      .object({
+        flashMB: z.enum(['4', '8', '16']),
+        psram: z.enum(['disabled', 'qspi', 'opi']),
+        confirmed: z.boolean(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
 export const ProjectSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     id: Id,
     name: z.string().min(1).max(100),
     revision: z
@@ -68,6 +102,8 @@ export const ProjectSchema = z
     files: z.array(FileSchema).min(1).max(32),
     bindings: z.array(BindingSchema).max(100),
     targetBoardId: Id.nullable(),
+    boardSettings: BoardSettingsSchema.default({}),
+    telemetry: z.array(TelemetryMappingSchema).max(32).default([]),
   })
   .strict();
 export type Project = z.infer<typeof ProjectSchema>;
@@ -99,6 +135,8 @@ export interface Terminal {
   evidenceIds: string[];
   header?: string;
   physicalPin?: number;
+  function?: string;
+  requirements?: string;
 }
 export interface Part {
   id: string;
@@ -107,7 +145,17 @@ export interface Part {
   manufacturer: string;
   mpn: string;
   revision: string;
-  kind: 'board' | 'resistor' | 'led';
+  kind:
+    | 'board'
+    | 'resistor'
+    | 'led'
+    | 'breadboard'
+    | 'encoder'
+    | 'servo'
+    | 'potentiometer'
+    | 'photointerruptor';
+  category?:
+    'Boards' | 'Prototyping' | 'Passive Components' | 'Indicators' | 'Sensors' | 'Actuators';
   description: string;
   coverage?: string;
   terminals: Terminal[];

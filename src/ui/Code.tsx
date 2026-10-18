@@ -6,6 +6,7 @@ import { FileCode2, Link2, Plus, FileUp } from 'lucide-react';
 import { useWorkspace, uid } from './store';
 import { partById } from '../parts/catalog';
 import { Badge, IconButton } from './primitives';
+import { buildKey } from '../domain/semantics';
 import { FileSchema } from '../domain/schema';
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 loader.config({ monaco });
@@ -38,6 +39,10 @@ export function Code() {
     active = useWorkspace((s) => s.activeFileId),
     apply = useWorkspace((s) => s.apply),
     selection = useWorkspace((s) => s.selection);
+  const checksPending = useWorkspace((s) => s.checksPending);
+  const diagnostics = useWorkspace((s) => s.diagnostics),
+    result = useWorkspace((s) => s.result);
+  const [editorReady, setEditorReady] = useState(false);
   const [adding, setAdding] = useState(false),
     [path, setPath] = useState('');
   const file = project.files.find((f) => f.id === active) ?? project.files[0];
@@ -69,6 +74,51 @@ export function Code() {
       ),
     );
   }, [selection, file.content]);
+  useEffect(() => {
+    const model = editor.current?.getModel();
+    if (!model) return;
+    const markers: monaco.editor.IMarkerData[] = (checksPending ? [] : diagnostics)
+      .filter(
+        (d) => d.source?.fileId === file.id && (d.severity === 'error' || d.severity === 'warning'),
+      )
+      .map((d) => {
+        const a = model.getPositionAt(d.source!.start),
+          b = model.getPositionAt(d.source!.end);
+        return {
+          startLineNumber: a.lineNumber,
+          startColumn: a.column,
+          endLineNumber: b.lineNumber,
+          endColumn: b.column,
+          message: d.title,
+          severity:
+            d.severity === 'error' ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+        };
+      });
+    if (result?.kind === 'build' && (!result.buildKey || result.buildKey === buildKey(project)))
+      for (const match of result.output.matchAll(
+        /(?:^|\n)[^\n]*?([A-Za-z0-9_-]+\.(?:ino|cpp|c|h)):(\d+):(\d+):\s*(error|warning):([^\n]+)/g,
+      )) {
+        const main =
+          project.files.find((f) => f.path === 'sketch.ino') ??
+          project.files.find((f) => f.path.endsWith('.ino'));
+        if (match[1] !== file.path && !(match[1] === 'sketch.ino' && file.id === main?.id))
+          continue;
+        const line = Number(match[2]),
+          column = Number(match[3]);
+        if (line < 1 || line > model.getLineCount()) continue;
+        markers.push({
+          startLineNumber: line,
+          endLineNumber: line,
+          startColumn: column,
+          endColumn: Math.min(column + 1, model.getLineMaxColumn(line)),
+          severity:
+            match[4] === 'error' ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+          message: match[5].trim(),
+        });
+      }
+    monaco.editor.setModelMarkers(model, 'trace', markers);
+    return () => monaco.editor.setModelMarkers(model, 'trace', []);
+  }, [diagnostics, checksPending, result, file.id, file.content, editorReady]);
   const addFile = (name: string, content: string) => {
     try {
       const added = FileSchema.parse({ id: uid('file'), path: name, content });
@@ -149,7 +199,10 @@ export function Code() {
           language="cpp"
           theme="trace"
           beforeMount={defineTraceTheme}
-          onMount={(e) => (editor.current = e)}
+          onMount={(e) => {
+            editor.current = e;
+            setEditorReady(true);
+          }}
           onChange={(content) => {
             const current = useWorkspace.getState().project.files.find((f) => f.id === file.id);
             if (content !== undefined && current && content !== current.content)

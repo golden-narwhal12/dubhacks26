@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
+import { menuAction } from './helpers';
 
 async function project(page: Page) {
   return page.evaluate(() => JSON.parse(localStorage.getItem('trace.draft.v1')!));
@@ -34,7 +35,7 @@ test('manual wiring → mismatch → reviewed fix → real MCU output, save/reop
   const app = await electron.launch({ args: ['.'], env: { ...process.env, TRACE_TEST: '1' } });
   try {
     const page = await app.firstWindow();
-    await expect(page.getByText('Hardware meets firmware.')).toBeVisible();
+    await expect(page.getByText('No API key connected.', { exact: true })).toBeVisible();
     await app.evaluate(() => {
       (globalThis as any).__modelRequests = 0;
       globalThis.fetch = async () => {
@@ -46,25 +47,25 @@ test('manual wiring → mismatch → reviewed fix → real MCU output, save/reop
     await expect.poll(async () => (await project(page)).wires.length).toBe(2);
     await dragPin(page, 'U1 terminal 12', 'R1 terminal 1');
     await expect.poll(async () => (await project(page)).wires.length).toBe(3);
-    await page.getByRole('button', { name: /1 issue/ }).click();
+    await page.getByRole('button', { name: 'Issues and output', exact: true }).click();
     await expect(page.getByText('LED_PIN does not match the wiring')).toBeVisible();
     await page.getByRole('button', { name: 'Preview fix', exact: true }).click();
     await expect(page.getByText('Bind LED_PIN ↔ U1.12')).toBeVisible();
     await page.getByRole('button', { name: 'Apply', exact: true }).click();
     await expect.poll(async () => (await project(page)).files[0].content).toContain('LED_PIN = 12');
-    await page.getByRole('button', { name: 'Undo (⌘Z)' }).click();
+    await menuAction(app, 'Undo Project Change');
     await expect.poll(async () => (await project(page)).files[0].content).toContain('LED_PIN = 13');
-    await page.getByRole('button', { name: 'Redo (⌘⇧Z)' }).click();
+    await menuAction(app, 'Redo Project Change');
     await expect.poll(async () => (await project(page)).bindings[0].terminalId).toBe('d12');
     await page.getByRole('button', { name: 'Collapse output' }).click();
-    await page.getByRole('button', { name: 'Run MCU', exact: true }).click();
+    await page.getByRole('button', { name: 'Simulate', exact: true }).click();
     await expect(page.getByText('Compiled MCU execution · external simavr')).toBeVisible({
       timeout: 60000,
     });
     await expect(page.locator('.uart-output')).toContainText('Trace: indicator ready');
     await expect(page.locator('.uart-output')).toContainText('indicator ON');
     await expect(page.locator('.execution-scope')).toContainText('GPIO trace:');
-    await page.getByRole('button', { name: 'Fit View', exact: true }).click();
+    await page.getByRole('button', { name: 'Fit view', exact: true }).click();
     await expect
       .poll(() =>
         page.locator('.canvas-area').evaluate((canvas) => {
@@ -89,14 +90,12 @@ test('manual wiring → mismatch → reviewed fix → real MCU output, save/reop
       (dialog as any).showSaveDialog = async () => ({ canceled: false, filePath: file });
       (dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
     });
-    await page.getByRole('button', { name: 'Save project (⌘S)' }).click();
+    await menuAction(app, 'Save');
     await expect(page.locator('.notice')).toContainText('Saved');
     const saved = await project(page);
-    await page.getByRole('button', { name: 'Project', exact: true }).click();
-    await page.getByRole('button', { name: 'New blank project' }).click();
+    await menuAction(app, 'New Project');
     await expect(page.getByText('Start with a connection.')).toBeVisible();
-    await page.getByRole('button', { name: 'Project', exact: true }).click();
-    await page.getByRole('button', { name: /Open project/ }).click();
+    await menuAction(app, 'Open…');
     await expect.poll(async () => (await project(page)).files[0].content).toContain('LED_PIN = 12');
     const reopened = await project(page);
     expect(reopened.wires).toEqual(saved.wires);
@@ -111,7 +110,7 @@ test('dock resizing/maximize/tabbing, part placement/deletion, code files and ke
   const app = await electron.launch({ args: ['.'], env: { ...process.env, TRACE_TEST: '1' } });
   try {
     const page = await app.firstWindow();
-    await expect(page.getByText('Hardware meets firmware.')).toBeVisible();
+    await expect(page.getByText('No API key connected.', { exact: true })).toBeVisible();
     const circuit = page.getByRole('region', { name: 'Circuit', exact: true });
     await circuit.getByRole('button', { name: 'Maximize or restore pane' }).click();
     await expect(page.getByRole('region', { name: 'Code', exact: true })).not.toBeVisible();
@@ -123,7 +122,7 @@ test('dock resizing/maximize/tabbing, part placement/deletion, code files and ke
     await expect.poll(async () => (await project(page)).components.length).toBe(4);
     await page.getByRole('button', { name: 'Delete selection', exact: true }).click();
     await expect.poll(async () => (await project(page)).components.length).toBe(3);
-    await page.getByRole('button', { name: 'Undo (⌘Z)' }).click();
+    await menuAction(app, 'Undo Project Change');
     await expect.poll(async () => (await project(page)).components.length).toBe(4);
     await page.getByRole('button', { name: 'Add firmware file' }).click();
     await page.getByRole('textbox', { name: 'New firmware filename' }).fill('pins.h');
@@ -149,7 +148,7 @@ test('dock resizing/maximize/tabbing, part placement/deletion, code files and ke
     await page.mouse.up();
     await expect(page.getByRole('tab', { name: 'Agent', exact: true })).toBeVisible();
     await expect(page.locator('.dv-groupview')).toHaveCount(2);
-    await page.getByRole('button', { name: 'Reset pane layout' }).click();
+    await menuAction(app, 'Reset Workspace Layout');
     await expect(page.getByRole('region', { name: 'Agent', exact: true })).toBeVisible();
     await expect(page.locator('.dv-groupview')).toHaveCount(3);
     const circuitWidth = (await circuit.boundingBox())!.width;
@@ -165,13 +164,10 @@ test('dock resizing/maximize/tabbing, part placement/deletion, code files and ke
     await expect
       .poll(async () => (await circuit.boundingBox())!.width)
       .toBeGreaterThan(circuitWidth + 30);
-    await page.evaluate(() => {
-      const b = document.querySelector('[aria-label="AI settings"]') as HTMLElement;
-      b.focus();
-    });
-    await expect(page.getByRole('button', { name: 'AI settings', exact: true })).toBeFocused();
+    await page.getByRole('button', { name: 'Connect a provider' }).focus();
+    await expect(page.getByRole('button', { name: 'Connect a provider' })).toBeFocused();
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1180, 760));
-    await expect(page.getByRole('button', { name: 'Build', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Verify', exact: true })).toBeVisible();
     await page.screenshot({ path: 'artifacts/laptop-workspace.png' });
   } finally {
     await app.close();
@@ -182,8 +178,8 @@ test('Gemini tool loop with deterministic protocol fixtures, visible proposal an
   const app = await electron.launch({ args: ['.'], env: { ...process.env, TRACE_TEST: '1' } });
   try {
     const page = await app.firstWindow();
-    await expect(page.getByText('Hardware meets firmware.')).toBeVisible();
-    await page.getByRole('button', { name: 'AI settings', exact: true }).click();
+    await expect(page.getByText('No API key connected.', { exact: true })).toBeVisible();
+    await menuAction(app, 'Settings…');
     await page.getByLabel('Provider API key', { exact: true }).fill('FIXTURE_NOT_A_REAL_KEY');
     await page.getByRole('button', { name: 'Save connection' }).click();
     await expect(page.getByText('Key stored')).toBeVisible();
@@ -250,7 +246,7 @@ test('Gemini tool loop with deterministic protocol fixtures, visible proposal an
     expect(requests).toHaveLength(3);
     expect(JSON.stringify(requests)).not.toContain('FIXTURE_NOT_A_REAL_KEY');
     expect(JSON.stringify(await project(page))).not.toContain('FIXTURE_NOT_A_REAL_KEY');
-    await page.getByRole('button', { name: 'AI settings', exact: true }).click();
+    await menuAction(app, 'Settings…');
     await page.getByRole('button', { name: 'OpenAI', exact: true }).click();
     await expect(page.getByText('Not connected', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Google Gemini', exact: true }).click();
@@ -266,8 +262,8 @@ test('proactive failed-build continuation stays inside the requested task and it
   const app = await electron.launch({ args: ['.'], env: { ...process.env, TRACE_TEST: '1' } });
   try {
     const page = await app.firstWindow();
-    await expect(page.getByText('Hardware meets firmware.')).toBeVisible();
-    await page.getByRole('button', { name: 'AI settings', exact: true }).click();
+    await expect(page.getByText('No API key connected.', { exact: true })).toBeVisible();
+    await menuAction(app, 'Settings…');
     await page.getByLabel('Provider API key', { exact: true }).fill('FIXTURE_PROACTIVE_KEY');
     await page.getByRole('button', { name: 'Save connection' }).click();
     await expect(page.getByText('Key stored', { exact: true })).toBeVisible();
@@ -330,7 +326,7 @@ test('proactive failed-build continuation stays inside the requested task and it
     await expect(
       page.getByRole('button', { name: 'Cancel agent task', exact: true }),
     ).toBeVisible();
-    await page.getByRole('button', { name: 'Build', exact: true }).click();
+    await page.getByRole('button', { name: 'Verify', exact: true }).click();
     await expect(
       page.getByText('Proactive: investigating your failed build within this active task.', {
         exact: true,

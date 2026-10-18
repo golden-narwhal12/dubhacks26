@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runBoundedProcess, runToolchain } from '../desktop/toolchain';
+import { runBoundedProcess, runToolchain, prepareFirmwareArtifact } from '../desktop/toolchain';
 import { exampleProject } from '../src/domain/example';
 import { prepareConfinement } from '../desktop/confinement';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
@@ -133,7 +133,7 @@ describe.skipIf(process.env.TRACE_LIVE_TOOLCHAIN !== '1')(
         { project: exampleProject(), requestId: 'live-mega', simulate: true },
         new AbortController().signal,
       );
-      expect(result.success).toBe(true);
+      expect(result.success, result.output).toBe(true);
       expect(result.output).toContain('Trace: indicator ready');
       expect(result.output).toContain('indicator ON');
       expect(result.output).toMatch(/GPIO trace: [1-9]\d* sampled digital transitions/);
@@ -147,8 +147,25 @@ describe.skipIf(process.env.TRACE_LIVE_TOOLCHAIN !== '1')(
         { project, requestId: 'live-esp', simulate: false },
         new AbortController().signal,
       );
-      expect(result.success).toBe(true);
+      expect(result.success, result.output).toBe(true);
       expect(result.output).toContain('esp32:esp32:esp32s3');
     }, 130000);
   },
+);
+
+it.skipIf(process.env.TRACE_LIVE_TOOLCHAIN !== '1')(
+  'retains an exact immutable build for review without programming',
+  async () => {
+    const p = exampleProject();
+    const build = await prepareFirmwareArtifact(p, new AbortController().signal);
+    try {
+      expect(build.artifact.id).toMatch(/^[a-f0-9]{64}$/);
+      expect(build.artifact.files).toEqual(p.files.map(({ path, content }) => ({ path, content })));
+      expect(build.artifact.configuration).toBe('arduino:avr:mega:cpu=atmega2560');
+      expect(build.result.success, build.result.output).toBe(true);
+    } finally {
+      await build.dispose();
+    }
+  },
+  130000,
 );

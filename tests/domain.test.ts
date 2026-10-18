@@ -100,7 +100,7 @@ describe('shared project semantics', () => {
     expect(validateCircuit(fixed).filter((d) => d.severity === 'error')).toHaveLength(0);
   });
   it('rejects incompatible project versions and dangling layout references', () => {
-    expect(() => validateProject({ ...exampleProject(), schemaVersion: 2 })).toThrow();
+    expect(() => validateProject({ ...exampleProject(), schemaVersion: 3 })).toThrow();
     const p = exampleProject();
     p.layouts.wiring.ghost = { x: 0, y: 0, rotation: 0 };
     expect(() => validateProject(p)).toThrow('Unknown layout');

@@ -14,6 +14,7 @@ export interface Diagnostic {
   objectIds: string[];
   rule: string;
   evidenceIds: string[];
+  source?: { fileId: string; start: number; end: number };
   nextAction?: string;
   fix?: { summary: string; commands: Command[] };
 }
@@ -58,7 +59,7 @@ export function validateCircuit(p: Project): Diagnostic[] {
         rule: 'part.evidence',
         evidenceIds: part.evidence.map((e) => e.id),
       });
-    if (part.id === 'esp32-s3-devkitc1-v11')
+    if (part.id === 'esp32-s3-devkitc1-v11' && !p.boardSettings.esp32?.confirmed)
       add({
         id: `variant-${c.id}`,
         severity: 'unknown',
@@ -198,6 +199,7 @@ export function validateCircuit(p: Project): Diagnostic[] {
           : undefined;
       add({
         id: `mismatch-${b.id}`,
+        ...(span ? { source: { fileId: file.id, start: span.start, end: span.end } } : {}),
         severity: 'error',
         layer: 'firmware',
         title: `${b.symbol} does not match the wiring`,
@@ -254,7 +256,7 @@ export function validateCircuit(p: Project): Diagnostic[] {
           'The simple low-side-ground LED check cannot identify a resistor connected to the anode. Current is unknown. Other driver topologies are outside this rule.',
         objectIds: [c.id],
         rule: 'led.series-resistor',
-        evidenceIds: ['led-package'],
+        evidenceIds: partById(c.partId).evidence.map((e) => e.id),
       });
     if (!cathodeGround)
       add({
@@ -266,7 +268,7 @@ export function validateCircuit(p: Project): Diagnostic[] {
           'The example rule expects the cathode to share a net with board ground. Other topologies require manual review.',
         objectIds: [c.id],
         rule: 'led.return',
-        evidenceIds: ['led-package'],
+        evidenceIds: partById(c.partId).evidence.map((e) => e.id),
       });
     const bypassed =
       resistor &&
@@ -282,7 +284,9 @@ export function validateCircuit(p: Project): Diagnostic[] {
           'The anode net has a direct drive/supply path or shorts both resistor leads. A resistor-limited current estimate is invalid.',
         objectIds: [c.id, resistor!.id],
         rule: 'led.resistor-bypass',
-        evidenceIds: ['led-package', 'resistor-rating'],
+        evidenceIds: [...partById(c.partId).evidence, ...partById(resistor!.partId).evidence].map(
+          (e) => e.id,
+        ),
       });
     if (resistor && cathodeGround && !bypassed) {
       const rpart = partById(resistor.partId);
@@ -292,20 +296,90 @@ export function validateCircuit(p: Project): Diagnostic[] {
         terminalId: rt.terminalId === 'p1' ? 'p2' : 'p1',
       };
       const drive = netFor(nets, other)?.terminals.find((e) => terminal(p, e).kind === 'gpio');
-      if (drive && rpart.resistance) {
+      const resistance = resistor.config.resistanceOhms ?? rpart.resistance;
+      const forwardV = c.config.forwardVoltageV ?? partById(c.partId).forwardV;
+      if (drive && resistance && forwardV !== undefined) {
         const voltage = terminal(p, drive).voltage!;
-        const ma = ((voltage - partById(c.partId).forwardV!) / rpart.resistance) * 1000;
+        const ma = Math.max(0, ((voltage - forwardV) / resistance) * 1000);
+        const threshold = c.config.maxCurrentMa ?? (c.partId === 'generic-led' ? 10 : 20);
         add({
           id: `led-estimate-${c.id}`,
-          severity: ma > 20 ? 'warning' : 'info',
+          severity: ma > threshold ? 'warning' : 'info',
           layer: 'electrical',
           title: `${c.ref}: ≈${ma.toFixed(1)} mA nominal estimate`,
-          detail: `(${voltage} V − 1.9 V typical) / ${rpart.resistance} Ω. Assumes GPIO high at nominal supply, 25 °C and the documented simple series path. GPIO drop, tolerance, thermal behavior and load dynamics are not simulated; this is not a guaranteed current or power budget.`,
+          detail: `(${voltage} V − ${forwardV} V assumed/typical) / ${resistance} Ω. Assumes GPIO high at nominal supply, 25 °C and the documented simple series path. GPIO drop, tolerance, thermal behavior and load dynamics are not simulated; this is not a guaranteed current or power budget.`,
           objectIds: [c.id, resistor.id, drive.componentId],
           rule: 'led.nominal-estimate',
-          evidenceIds: ['led-package', 'resistor-rating', 'mega-current'],
+          evidenceIds: [...partById(c.partId).evidence, ...rpart.evidence].map((e) => e.id),
         });
       }
+    }
+  }
+  for (const component of p.components.filter((c) =>
+    ['itr9608-dip4', 'as5600-module-photo', 'sg90-generic'].includes(c.partId),
+  )) {
+    const part = partById(component.partId),
+      connected = (id: string) =>
+        netFor(nets, { componentId: component.id, terminalId: id })?.terminals.filter(
+          (e) => e.componentId !== component.id,
+        ) ?? [];
+    if (part.kind === 'photointerruptor') {
+      if (
+        !connected('a').some(
+          (e) =>
+            partById(p.components.find((c) => c.id === e.componentId)!.partId).kind === 'resistor',
+        )
+      )
+        add({
+          id: `emitter-${component.id}`,
+          severity: 'warning',
+          layer: 'electrical',
+          title: `${component.ref}: emitter current limiting not documented`,
+          detail:
+            'The bare IR emitter needs a suitable series current-limiting path. No direct-series resistor was identified on its anode net; alternative circuits require review.',
+          objectIds: [component.id],
+          rule: 'opto.emitter-path',
+          evidenceIds: ['itr-pinout'],
+        });
+      if (
+        !connected('c').some(
+          (e) =>
+            partById(p.components.find((c) => c.id === e.componentId)!.partId).kind === 'resistor',
+        ) &&
+        !p.bindings.some(
+          (b) =>
+            b.mode === 'input_pullup' &&
+            netFor(nets, b.target)?.id ===
+              netFor(nets, { componentId: component.id, terminalId: 'c' })?.id,
+        )
+      )
+        add({
+          id: `detector-${component.id}`,
+          severity: 'warning',
+          layer: 'electrical',
+          title: `${component.ref}: detector load not documented`,
+          detail:
+            'Collector/emitter is a phototransistor, not a comparator output. A load or explicitly configured input pull-up is needed for a voltage signal. Dynamic firmware pull-ups are not inferred.',
+          objectIds: [component.id],
+          rule: 'opto.detector-load',
+          evidenceIds: ['itr-pinout'],
+        });
+    } else {
+      const supply = part.kind === 'encoder' ? 'vcc' : 'power';
+      if (!connected(supply).length || !connected('gnd').length)
+        add({
+          id: `supply-${component.id}`,
+          severity: 'warning',
+          layer: 'electrical',
+          title: `${component.ref}: supply wiring incomplete`,
+          detail:
+            part.kind === 'servo'
+              ? 'Servo supply/current ratings and power distribution need review on the actual unit. No power budget is guaranteed.'
+              : 'Document VCC and ground; module regulator/pull-ups and supply circuitry remain provisional.',
+          objectIds: [component.id],
+          rule: 'part.supply-documentation',
+          evidenceIds: part.evidence.map((e) => e.id),
+        });
     }
   }
   add({

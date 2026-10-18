@@ -2,7 +2,7 @@
 
 Trace brings documented hardware and firmware into one local development loop. A direct wiring canvas, code editor, and AI collaborator share structured project data. The editor stays useful with all providers disabled. Physical wiring is documented by a person; USB never discovers it.
 
-The workspace supports idea, hardware, code, and blank entry points. Initial boards chosen by Pranav: Arduino Mega 2560 Rev3 A000067 and Espressif ESP32-S3-DevKitC-1 v1.1. ESP module flash/PSRAM variant is unconfirmed. The resettable Mega example uses a Kingbright WP7113ID red LED and a Vishay MRS25 330 Ω resistor. No claim is made about other available components.
+The workspace supports idea, hardware, code, and blank entry points. Initial boards chosen by Pranav: Arduino Mega 2560 Rev3 A000067 and Espressif ESP32-S3-DevKitC-1 v1.1. ESP module flash/PSRAM variant is unconfirmed. The resettable Mega example uses a generic red LED and configurable 330 Ω resistor with explicit analysis assumptions. Existing exact Kingbright/Vishay packages remain available to old project references. No claim is made about other available components.
 
 The longer-term workspace grows from this loop: searchable exact part packages with reviewed datasheet imports; independent pictorial and electrical-symbol layouts over the same nets; richer firmware toolchains and physical-device adapters; and compatible behavioral/analog models with explicit boundaries. A part can be documented without supporting simulation. Every engineering claim should preserve its evidence, conditions and unknowns. Model confidence cannot substitute for verification.
 
@@ -20,8 +20,14 @@ Human and AI edits remain peers through one validated, undoable transaction laye
 
 ## Deferred
 
-Broad catalog, datasheet import, breadboards, arbitrary firmware analysis, analog/SPICE co-simulation, cloud/accounts, collaboration platform, marketplace, OS detached windows and advanced schematic tooling. The current shared schematic provides basic symbols and independent layout. Physical upload/serial follows confirmed hardware. Exact unmet criteria are tracked in status.
+Broad catalog, datasheet import, arbitrary firmware analysis, analog/SPICE co-simulation, cloud/accounts, collaboration platform, marketplace, OS detached windows and advanced schematic tooling. The current shared schematic provides basic symbols and independent layout. Physical upload and persistent serial now use explicit device selection and action-specific approvals; real-device verification remains pending. Exact unmet criteria are tracked in status.
 
 ## Event planning
 
 Checked 2026-10-17 at approximately 15:18 PDT: [Devpost](https://dubhacks-2026.devpost.com/) lists draft Saturday 22:30 and final Sunday 10:00. It limits entries to one title track and up to three sponsored side tracks. The [hacker guide](https://dubhacks.notion.site/ebd//15dff32c1d7e83748aac8154036aa658?pvs=143) was inaccessible. Solo/category eligibility, sponsor classification and video limits are unverified. Intended categories are context only. No eligibility claim, submission, publication, registration or external message is authorized by this implementation work.
+
+## Prototype and Debug
+
+Prototype edits/checks source and wiring, selects an actual device, optionally emulates Mega code, and explicitly programs an immutable reviewed artifact. Debug inspects actual firmware serial output with explicit local telemetry mappings and bounded history. Shared project/agent context survives switching. Real programming succeeds before automatic Debug navigation; simulation is independent and never a prerequisite. No reporting helpers are secretly inserted. Hardware control by an agent always requires a separate specific user approval.
+
+Initial peripheral library covers the supplied AS5600 photo-matched module, generic SG90 and bare DIP-4 ITR9608, plus exact BB830 and generic potentiometer. Evidence/scope is recorded in [parts](parts.md). Diagram presence is not telemetry and commanded servo position is not measured feedback.

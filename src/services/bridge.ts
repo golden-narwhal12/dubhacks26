@@ -13,6 +13,8 @@ export interface RunResult {
   output: string;
   durationMs: number;
   artifactId?: string;
+  buildKey?: string;
+  circuitKey?: string;
   observations?: { uart: string; digitalTransitions: number | null; scope: string };
 }
 export interface ToolCall {
@@ -42,6 +44,10 @@ export interface ProviderRequest {
   requestId: string;
 }
 export interface DesktopBridge {
+  hardware: import('./hardware').HardwareBridge;
+  onMenuAction(callback: (action: string) => void): () => void;
+  setProjectTitle(name: string): Promise<void>;
+  exportFirmware(project: Project): Promise<void>;
   saveProject(project: Project): Promise<{ cancelled: boolean; name?: string }>;
   openProject(): Promise<{ cancelled: boolean; project?: Project; name?: string }>;
   connections(): Promise<Connection[]>;

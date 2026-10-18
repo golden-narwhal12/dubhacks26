@@ -35,7 +35,18 @@ import { Output } from './Output';
 import { Settings } from './Settings';
 import { partById } from '../parts/catalog';
 import { IconButton, Badge } from './primitives';
-const components = { circuit: Circuit, code: Code, agent: Agent };
+import { Debug } from './Debug';
+import { BoardSelector, HardwareDialogs } from './HardwareControls';
+import {
+  cancelPreparation,
+  initializeHardware,
+  useHardware,
+  verifyProject,
+  programBoard,
+  requestHardware,
+  hardwareError,
+} from './hardwareClient';
+const components = { circuit: Circuit, code: Code, agent: Agent, debug: Debug };
 function HeaderActions(props: IDockviewHeaderActionsProps) {
   return (
     <div className="dock-actions">
@@ -63,21 +74,29 @@ function HeaderActions(props: IDockviewHeaderActionsProps) {
     </div>
   );
 }
-function defaults(api: DockviewApi) {
+function defaults(api: DockviewApi, workspace: 'prototype' | 'debug' = 'prototype') {
   api.clear();
   const c = api.addPanel({
-    id: 'circuit',
-    component: 'circuit',
-    title: 'Circuit',
+    id: workspace === 'debug' ? 'debug' : 'circuit',
+    component: workspace === 'debug' ? 'debug' : 'circuit',
+    title: workspace === 'debug' ? 'Device' : 'Circuit',
     minimumWidth: 300,
   });
   const code = api.addPanel({
     id: 'code',
-    component: 'code',
-    title: 'Code',
+    component: workspace === 'debug' ? 'circuit' : 'code',
+    title: workspace === 'debug' ? 'Circuit' : 'Code',
     position: { referencePanel: c, direction: 'right' },
     minimumWidth: 260,
   });
+  if (workspace === 'debug')
+    api.addPanel({
+      id: 'firmware-context',
+      component: 'code',
+      title: 'Code',
+      inactive: true,
+      position: { referencePanel: code, direction: 'within' },
+    });
   const agent = api.addPanel({
     id: 'agent',
     component: 'agent',
@@ -86,175 +105,270 @@ function defaults(api: DockviewApi) {
     minimumWidth: 260,
   });
   requestAnimationFrame(() => {
+    if (api.getPanel(c.id) !== c) return;
     c.api.setSize({ width: Math.round(api.width * 0.48) });
     code.api.setSize({ width: Math.round(api.width * 0.29) });
     agent.api.setSize({ width: Math.round(api.width * 0.23) });
   });
 }
 export function App() {
-  const s = useWorkspace();
+  const s = useWorkspace(),
+    h = useHardware();
   const dock = useRef<DockviewApi | null>(null);
-  const [menu, setMenu] = useState(false);
-  const errors = s.diagnostics.filter((d) => d.severity === 'error').length;
-  const target = s.project.components.find((c) => c.id === s.project.targetBoardId);
-  const targetPart = target ? partById(target.partId) : null;
+  const activeWorkspace = useRef(s.workspace);
+  const target = s.project.components.find((c) => c.id === s.project.targetBoardId),
+    targetPart = target ? partById(target.partId) : null;
+  const monitor = () => {
+    const state = useHardware.getState();
+    void requestHardware(
+      state.snapshot?.serial.state === 'connected'
+        ? { action: 'disconnect' }
+        : {
+            action: 'connect',
+            portKey: state.portKey,
+            baud: state.baud,
+            delimiter: state.delimiter,
+          },
+      state.snapshot?.serial.state === 'connected'
+        ? 'Stop the current monitor.'
+        : 'Open the selected device for serial monitoring.',
+    ).catch(hardwareError);
+  };
   useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        useWorkspace.setState({ settings: false, library: false, selection: null });
-        setMenu(false);
-      }
-      if (!(e.metaKey || e.ctrlKey)) return;
-      const input = (e.target as HTMLElement).closest('input,textarea,.monaco-editor');
-      if (e.key === 's') {
-        e.preventDefault();
-        void s.save();
-      }
-      if (e.key === 'o') {
-        e.preventDefault();
-        void s.open();
-      }
-      if (e.key === 'z' && !input) {
-        e.preventDefault();
-        e.shiftKey ? s.redo() : s.undo();
+    initializeHardware();
+    const action = (a: string) => {
+      if (document.querySelector('dialog[open]') && !['undo', 'redo'].includes(a)) return;
+      const current = useWorkspace.getState();
+      switch (a) {
+        case 'new':
+          current.reset(true);
+          break;
+        case 'example':
+          current.reset();
+          break;
+        case 'open':
+          void current.open();
+          break;
+        case 'save':
+          void current.save();
+          break;
+        case 'export':
+          void window.trace?.exportFirmware(current.project).catch(hardwareError);
+          break;
+        case 'settings':
+          useWorkspace.setState({ settings: true });
+          break;
+        case 'undo':
+        case 'redo': {
+          const input = (document.activeElement as HTMLElement)?.closest(
+            'input,textarea,.monaco-editor',
+          );
+          if (input) document.execCommand(a);
+          else current[a]();
+          break;
+        }
+        case 'prototype':
+        case 'debug':
+          useWorkspace.setState({ workspace: a });
+          break;
+        case 'output':
+          useWorkspace.setState({ outputOpen: !current.outputOpen });
+          break;
+        case 'layout':
+          if (dock.current) defaults(dock.current, current.workspace);
+          break;
+        case 'verify':
+          void verifyProject();
+          break;
+        case 'simulate':
+          void current.run(true);
+          break;
+        case 'program':
+          void programBoard().catch(hardwareError);
+          break;
+        case 'refresh':
+          void window.trace?.hardware
+            .discover()
+            .then((snapshot) => useHardware.setState({ snapshot }))
+            .catch(hardwareError);
+          break;
+        case 'board':
+          document.querySelector<HTMLDetailsElement>('.board-picker')?.setAttribute('open', '');
+          break;
+        case 'monitor':
+          monitor();
+          break;
+        case 'reset':
+          void requestHardware(
+            { action: 'reset', portKey: useHardware.getState().portKey, mechanism: 'dtr-pulse' },
+            'Reset the selected board using DTR.',
+          ).catch(hardwareError);
+          break;
+        case 'help':
+          useWorkspace.setState({
+            notice:
+              'Verify compiles visible source. Simulate executes Mega MCU only. Program uploads an approved artifact; serial data comes only from firmware output.',
+          });
+          break;
       }
     };
+    const remove = window.trace?.onMenuAction?.(action);
+    const key = (e: KeyboardEvent) => {
+      if (document.querySelector('dialog[open]')) return;
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const map: Record<string, string> = {
+        s: e.shiftKey ? 'save' : 'save',
+        o: 'open',
+        ',': 'settings',
+        '1': 'prototype',
+        '2': 'debug',
+        j: 'output',
+      };
+      if (!window.trace) {
+        map.z = e.shiftKey ? 'redo' : 'undo';
+        map.r = 'verify';
+        map.u = 'program';
+      }
+      if (map[e.key]) {
+        e.preventDefault();
+        action(map[e.key]);
+      }
+    };
+    const custom = (e: Event) => action((e as CustomEvent<string>).detail);
     window.addEventListener('keydown', key);
-    return () => window.removeEventListener('keydown', key);
+    window.addEventListener('trace:menu', custom);
+    return () => {
+      remove?.();
+      window.removeEventListener('keydown', key);
+      window.removeEventListener('trace:menu', custom);
+    };
   }, []);
+  useEffect(() => {
+    void window.trace?.setProjectTitle?.(s.project.name);
+  }, [s.project.name]);
+  useEffect(() => {
+    if (!dock.current || activeWorkspace.current === s.workspace) return;
+    try {
+      localStorage.setItem(
+        `trace.layout.${activeWorkspace.current}.v2`,
+        JSON.stringify(dock.current.toJSON()),
+      );
+    } catch {}
+    activeWorkspace.current = s.workspace;
+    const saved = localStorage.getItem(`trace.layout.${s.workspace}.v2`);
+    try {
+      if (saved) dock.current.fromJSON(JSON.parse(saved));
+      else defaults(dock.current, s.workspace);
+    } catch {
+      defaults(dock.current, s.workspace);
+    }
+  }, [s.workspace]);
   const ready = (e: DockviewReadyEvent) => {
     dock.current = e.api;
+    const saved = localStorage.getItem(`trace.layout.${s.workspace}.v2`);
     try {
-      const saved = localStorage.getItem('trace.layout.v1');
       if (saved) e.api.fromJSON(JSON.parse(saved));
-      else defaults(e.api);
+      else defaults(e.api, s.workspace);
     } catch {
-      defaults(e.api);
+      defaults(e.api, s.workspace);
     }
     e.api.onDidLayoutChange(() => {
       try {
-        localStorage.setItem('trace.layout.v1', JSON.stringify(e.api.toJSON()));
+        localStorage.setItem(
+          `trace.layout.${activeWorkspace.current}.v2`,
+          JSON.stringify(e.api.toJSON()),
+        );
       } catch {}
     });
   };
   return (
     <div className="app-shell">
-      <header className="titlebar">
-        <div className="wordmark">
-          <svg width="23" height="23" viewBox="0 0 24 24">
-            <path d="M3 6H10V18H20M10 12H18" stroke="currentColor" strokeWidth="2" fill="none" />
-            <circle cx="3" cy="6" r="2" fill="currentColor" />
-            <circle cx="20" cy="18" r="2" fill="currentColor" />
-            <circle cx="18" cy="12" r="2" fill="currentColor" />
-          </svg>
-          trace
-        </div>
-        <div className="project-title">
-          {s.project.name}
-          <Badge>local</Badge>
-        </div>
-        <span className="spacer" />
-        <span className="title-meta">Hardware + firmware, together.</span>
-      </header>
-      <div className="app-toolbar">
-        <div className="project-menu-wrap">
-          <button className="secondary" onClick={() => setMenu(!menu)}>
-            <FolderOpen size={14} /> Project
-          </button>
-          {menu && (
-            <div className="project-menu floating-surface">
-              <button
-                onClick={() => {
-                  void s.open();
-                  setMenu(false);
-                }}
-              >
-                <FolderOpen size={14} /> Open project <kbd>⌘O</kbd>
-              </button>
-              <button
-                onClick={() => {
-                  void s.save();
-                  setMenu(false);
-                }}
-              >
-                <Save size={14} /> Save as… <kbd>⌘S</kbd>
-              </button>
-              <button
-                onClick={() => {
-                  s.reset(true);
-                  setMenu(false);
-                }}
-              >
-                <Plus size={14} /> New blank project
-              </button>
-              <button
-                onClick={() => {
-                  s.reset();
-                  setMenu(false);
-                }}
-              >
-                <RotateCcw size={14} /> Reset indicator example
-              </button>
-            </div>
-          )}
-        </div>
-        <IconButton title="Save project (⌘S)" onClick={() => void s.save()}>
-          <Save />
-        </IconButton>
-        <div className="separator" />
-        <IconButton title="Undo (⌘Z)" onClick={s.undo} disabled={!s.history.past.length}>
-          <Undo2 />
-        </IconButton>
-        <IconButton title="Redo (⌘⇧Z)" onClick={s.redo} disabled={!s.history.future.length}>
-          <Redo2 />
-        </IconButton>
-        <span className="spacer" />
-        <select
-          aria-label="Build target"
-          value={s.project.targetBoardId ?? ''}
-          onChange={(e) =>
-            s.apply('Change build target', [{ type: 'setTarget', id: e.target.value || null }])
-          }
-        >
-          <option value="">Select build target</option>
-          {s.project.components
-            .filter((c) => !!partById(c.partId).firmware)
-            .map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.ref} · {partById(c.partId).name}
-              </option>
-            ))}
-        </select>
-        <button className="secondary" onClick={() => void s.run()} disabled={s.building || !target}>
-          {s.building ? 'Building…' : 'Build'}
-        </button>
-        <button
-          className="primary"
-          onClick={() => void s.run(true)}
-          disabled={s.building || !target || targetPart?.simulation === 'none'}
-          title={
-            targetPart?.simulation === 'none'
-              ? 'No execution model for this board'
-              : 'Compile and run Mega firmware with external simavr'
-          }
-        >
-          <Play size={13} /> Run MCU
-        </button>
-        {s.building && (
-          <IconButton title="Stop build or execution" onClick={s.cancelBuild}>
+      <div className="app-toolbar" role="toolbar" aria-label="Workspace actions">
+        {s.workspace === 'prototype' ? (
+          <>
+            <button
+              className="verify-button secondary"
+              onClick={() => void verifyProject()}
+              disabled={s.building || h.preparing || h.snapshot?.busy || !target}
+            >
+              <CheckCircle2 size={15} />
+              {s.building ? 'Verifying…' : 'Verify'}
+            </button>
+            <button
+              className="primary"
+              disabled={s.building || h.preparing || h.snapshot?.busy || !target}
+              onClick={() => void programBoard().catch(hardwareError)}
+            >
+              <Play size={13} />
+              {h.preparing ? 'Preparing…' : 'Program Board'}
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="secondary" disabled={h.preparing} onClick={monitor}>
+              <PanelBottom size={14} />
+              {h.snapshot?.serial.state === 'connected' ? 'Stop monitoring' : 'Start monitoring'}
+            </button>
+            <button
+              className="primary"
+              disabled={h.preparing || s.building || h.snapshot?.busy}
+              onClick={() => void programBoard().catch(hardwareError)}
+            >
+              Program Board
+            </button>
+          </>
+        )}
+        <BoardSelector />
+        {(s.building || h.preparing || h.snapshot?.busy) && (
+          <IconButton
+            title="Stop operation"
+            onClick={() => {
+              s.cancelBuild();
+              if (h.preparationId) cancelPreparation();
+              for (const r of h.snapshot?.requests ?? [])
+                if (r.status === 'running') void window.trace?.hardware.cancel(r.id);
+            }}
+          >
             <Square />
           </IconButton>
         )}
-        <div className="separator" />
-        <IconButton
-          title="Reset pane layout"
-          onClick={() => dock.current && defaults(dock.current)}
+        <span className="spacer" />
+        {s.workspace === 'prototype' && (
+          <button
+            className="quiet"
+            title={
+              targetPart?.simulation === 'simavr-external'
+                ? 'Simulate Mega MCU only'
+                : 'No execution model for this board'
+            }
+            disabled={s.building || targetPart?.simulation !== 'simavr-external'}
+            onClick={() => void s.run(true)}
+          >
+            Simulate
+          </button>
+        )}
+        <button
+          className="issues-button"
+          title="Issues and output"
+          aria-label="Issues and output"
+          onClick={() =>
+            useWorkspace.setState({ outputOpen: !s.outputOpen, outputTab: 'diagnostics' })
+          }
         >
-          <Columns3 />
-        </IconButton>
-        <IconButton title="AI settings" onClick={() => useWorkspace.setState({ settings: true })}>
-          <Settings2 />
-        </IconButton>
+          <AlertTriangle size={13} />
+          {s.diagnostics.filter((d) => d.severity === 'error').length || ''}
+        </button>
+        <div className="segmented workspace-switch" aria-label="Workspace">
+          {(['prototype', 'debug'] as const).map((w) => (
+            <button
+              key={w}
+              className={s.workspace === w ? 'active' : ''}
+              onClick={() => useWorkspace.setState({ workspace: w })}
+            >
+              {w === 'prototype' ? 'Prototype' : 'Debug'}
+            </button>
+          ))}
+        </div>
       </div>
       <main className="workspace">
         <DockviewReact
@@ -267,35 +381,6 @@ export function App() {
         />
       </main>
       {s.outputOpen && <Output />}
-      <footer className="statusbar">
-        <button
-          onClick={() =>
-            useWorkspace.setState({ outputOpen: !s.outputOpen, outputTab: 'diagnostics' })
-          }
-        >
-          {errors ? <AlertTriangle size={12} /> : <CheckCircle2 size={12} />}{' '}
-          {s.checksPending
-            ? 'Checking code…'
-            : errors
-              ? `${errors} ${errors === 1 ? 'issue' : 'issues'}`
-              : 'Local checks'}
-          <span className="muted">{s.outputOpen ? 'Hide output' : 'Show output'}</span>
-        </button>
-        <span className="spacer" />
-        <small>
-          {s.capabilities.desktop ? 'Desktop' : 'Browser · desktop services unavailable'}
-        </small>
-        <span className="status-divider" />
-        <small>r{s.project.revision}</small>
-        <span className="status-divider" />
-        <small>Documented wiring · physical device not selected</small>
-        <IconButton
-          title="Toggle output"
-          onClick={() => useWorkspace.setState({ outputOpen: !s.outputOpen })}
-        >
-          <PanelBottom />
-        </IconButton>
-      </footer>
       {s.notice && (
         <div className="notice" role="status">
           <span>{s.notice}</span>
@@ -305,6 +390,7 @@ export function App() {
         </div>
       )}
       {s.settings && <Settings />}
+      <HardwareDialogs />
     </div>
   );
 }

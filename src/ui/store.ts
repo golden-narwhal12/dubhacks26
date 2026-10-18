@@ -32,6 +32,9 @@ export interface Proposal {
   origin: 'agent' | 'rule';
 }
 interface State {
+  agentDraft:string;
+  dismissedSuggestions:string[];
+  workspace: 'prototype' | 'debug';
   project: Project;
   history: History;
   selection: Selection;
@@ -124,10 +127,15 @@ function loadSession(): Partial<State> {
   }
 }
 const initial = load();
+try {
+  localStorage.setItem('trace.draft.v1', serializeProject(initial));
+} catch {}
 const session = loadSession();
 let lastEditTime = 0;
 let checkTimer: ReturnType<typeof setTimeout> | undefined;
 export const useWorkspace = create<State>((set, get) => ({
+  agentDraft:'',dismissedSuggestions:[],
+  workspace: 'prototype',
   project: initial,
   history: emptyHistory(),
   selection: null,
@@ -327,9 +335,10 @@ export const useWorkspace = create<State>((set, get) => ({
   },
   dismissNotice: () => set({ notice: null }),
 }));
-useWorkspace.subscribe((s) => {
+useWorkspace.subscribe((s, previous) => {
   try {
-    localStorage.setItem('trace.draft.v1', serializeProject(s.project));
+    if (s.project !== previous.project)
+      localStorage.setItem('trace.draft.v1', serializeProject(s.project));
     localStorage.setItem(
       'trace.session.v1',
       JSON.stringify({
