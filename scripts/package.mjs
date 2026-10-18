@@ -2,48 +2,16 @@ import { packager } from '@electron/packager';
 import { cp, mkdir, readFile, writeFile, access, rm } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { resolve, join } from 'node:path';
+import { collectThirdPartyNotices } from './third-party-notices.mjs';
 
 const root = resolve('.'),
   stage = resolve('artifacts/package-source'),
   tools = resolve('artifacts/trace-tools');
 await rm(stage, { recursive: true, force: true });
+await rm(tools, { recursive: true, force: true });
 await mkdir(stage, { recursive: true });
 for (const dir of ['dist', 'dist-desktop']) await cp(dir, join(stage, dir), { recursive: true });
-await mkdir(join(stage, 'licenses'), { recursive: true });
-for (const name of [
-  'react',
-  'react-dom',
-  'zustand',
-  'zod',
-  'lucide-react',
-  '@monaco-editor/react',
-  '@xyflow/react',
-  '@xyflow/system',
-  'dockview-react',
-  'dockview',
-  'dockview-core',
-  'monaco-editor',
-  'serialport',
-]) {
-  try {
-    await cp(
-      resolve('node_modules', name, 'LICENSE'),
-      join(stage, 'licenses', name.replace('/', '-') + '.txt'),
-    );
-  } catch {
-    try {
-      await cp(
-        resolve('node_modules', name, 'LICENSE.txt'),
-        join(stage, 'licenses', name.replace('/', '-') + '.txt'),
-      );
-    } catch {
-      await cp(
-        resolve('node_modules', name, 'LICENCE.md'),
-        join(stage, 'licenses', name.replace('/', '-') + '.txt'),
-      );
-    }
-  }
-}
+await collectThirdPartyNotices(root, join(stage, 'licenses'));
 const pkg = JSON.parse(await readFile('package.json', 'utf8'));
 await writeFile(
   join(stage, 'package.json'),

@@ -13,11 +13,11 @@ Build/launch: `npm ci && npm run build && npm start`; native `npm run package`. 
 
 Actual physical operations remain unverified. Selected Gemini software evaluations have passed; current results and retained failures are in [evaluation](evaluation.md). Deterministic tests use fake serial/device/adapter data, clearly distinguished from real compiler/emulator runs. Monitor histories and upload records are session-local, and external reflashing cannot be detected. [Status](status.md) records latest actual evidence; [execution](execution.md) records setup and limits; [parts](parts.md) records identity questions.
 
-No video production, submission, domain registration or publication has been performed.
+Local demo and edited video exports have been produced under ignored `artifacts/`. No submission, domain registration or publication has been performed.
 
 Agent workflow: start New Project for a clean project/chat, request an implementation, review complete local batches with Apply and continue if using preview policy, and answer any structured question in Agent. The same task automatically inspects, edits, checks and compiles after approval/answers. Physical action cards remain separate. The expanded catalog includes external supplies and Adafruit757 so power/logic problems can be repaired with represented hardware instead of disconnected wires.
 
-Offline fallback: Project → Servo and Encoder Example loads the labeled five-component design. Run Verify; inspect the external 5 V source/common ground and separate Adafruit 757 I²C domains, then Debug’s four Not reported channels. This is an editable, compiled manual example, not evidence of live Gemini creation or physical feedback. Latest live evaluation was blocked by repeated Gemini 503s; see [evaluation](evaluation.md).
+Offline fallback: Project → Servo and Encoder Example loads the labeled five-component design. Run Verify; inspect the external 5 V source/common ground and separate Adafruit 757 I²C domains, then Debug’s four Not reported channels. This is an editable, compiled manual example, not evidence of live Gemini creation or physical feedback. Earlier servo/encoder live attempts were blocked by Gemini 503s or task failures; the later LED recording below passed live. The manual servo template is still not a complete live-agent acceptance result; see [evaluation](evaluation.md).
 
 ## Recorded live product workflow — 18 October, 02:23 PDT
 

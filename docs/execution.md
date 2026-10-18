@@ -6,6 +6,8 @@ The first `.ino` file (preferring `sketch.ino`) becomes `sketch/sketch.ino`; oth
 
 On macOS both compiler and simulator run under a generated `sandbox-exec` profile inherited by child processes. It denies network I/O and regular-file contents outside explicit system/SDK/tool/package/index/scratch roots, and denies writes outside scratch/device streams. It allows filesystem metadata, inherited pipes and other required macOS runtime operations; broad system roots remain readable. This is targeted confinement rather than a complete hostile-native-code sandbox. Missing/unsupported confinement fails closed; no unrestricted build fallback. Tests use synthetic excluded files and a loopback connection attempt, never user secrets.
 
+Fresh-machine CLI/core installation commands and minimum Node version are in [README](../README.md#firmware-tools-optional-for-editing). The manual editor runs without these optional tools or credentials.
+
 ## Simulator setup
 
 Run `node scripts/setup-simavr.mjs`. It requires Git, make, clang/Xcode command-line tools and network access for the initial source download. It builds pinned upstream simavr commit `5b08da60497f7564f50941f74a549fe2851db030` under ignored `artifacts/tools`, retaining the source, license and build metadata. No system installation is needed. The standalone executable is GPL-3.0-or-later; it is spawned externally, not linked into Electron. Packaging includes the prepared simulator with its license and corresponding source archive.

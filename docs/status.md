@@ -1,5 +1,11 @@
 # Status
 
+## Submission readiness — 18 October, 09:44 PDT
+
+Production build and local macOS package passed. Latest checks: **115 unit/service tests passed, 6 opt-in skipped across 18 files; 28 actual Electron scenarios passed, packaged scenario separately skipped in that run; 12 real compiler/emulator/confinement checks passed; separate packaged-app smoke test passed from `/private/tmp`.** Production dependency audit reported zero known vulnerabilities. Tracked files and Git history were scanned for common credential/private-key patterns with no matches. No live provider requests or physical upload/reset/serial/transmit were performed during this review.
+
+Submission polish adds Node ≥22.12.0 and `.nvmrc`, pinned read-only macOS build/test CI, fresh-machine Arduino/core setup, an actual offline workspace screenshot and corrected live-evidence/font documentation. Packaging now clears optional-tool staging and retains notices for 63 installed production runtime packages, including Monaco ThirdPartyNotices, with a version/license manifest; no packaged notice files were missing. Existing simulator/Servo source and licenses remain retained. User-owned `tst.json`, credentials, videos and generated artifacts are excluded from this checkpoint. CI is configured but its remote outcome must be checked after push; local passes are not a claim that remote CI has already passed. Physical-device verification and full live servo/encoder task completion remain outstanding as detailed below.
+
 ## Recorded demo — 18 October, 02:23 PDT
 
 Delivered `artifacts/demos/mudroom-demo.mp4`, a real-time uninterrupted 55.8-second actual Electron capture: typed request → live part search → actual circuit/source transaction → Verify/compile → external simavr output. Current trace-agent-14/tools trace-tools-13 with Gemini 3.5 Flash-Lite passed all eleven LED creation artifact checks: six requests, four successful tools, 62,208 reported tokens. Exact source compiled (2,626 flash bytes/213 SRAM), with real UART output and 17 sampled MCU transitions. No fixtures/replay/manual circuit repairs or physical operations. Video decoding, dimensions/frame rate and screenshots were checked. User project/profile and credential configuration were preserved; nothing published. See [demo](demo.md).

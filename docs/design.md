@@ -39,3 +39,5 @@ User direction, 18 October: the product name is **mudroom**, always lowercase. K
 User feedback restored the original system sans-serif interface font and SFMono/Menlo code typography. Logs and ASCII glyphs use the original system monospace stack; no custom font loads. ASCII `>_` for Agent, `[+]` for a new chat, `[?]` for contextual AI, and `{}` for firmware tabs are decorative glyphs with conventional accessible control names. Standard controls and safety icons remain familiar. Border radii are subtly tighter; an active dock tab has a fine green line. New app artwork is an original lowercase m/cursor vector, not a raster asset.
 
 Renaming preserves legacy `.trace.json`, storage/IPC identifiers, bundle ID and existing keychain/profile identity. New example source uses the new name; previously saved user firmware is never rewritten for branding.
+
+Repository overview uses an actual offline Electron capture in `docs/images/workspace.png`; it shows the default indicator example and unconfigured Agent rather than invented conversation or physical-device readings.

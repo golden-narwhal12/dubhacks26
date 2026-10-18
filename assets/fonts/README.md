@@ -3,7 +3,7 @@
 Unmodified Regular and Medium WOFF2 files from JetBrains Mono **v2.304**:
 https://github.com/JetBrains/JetBrainsMono/tree/v2.304/fonts/webfonts
 
-Copyright 2020 The JetBrains Mono Project Authors. Distributed under the SIL Open Font License 1.1; see the accompanying `OFL.txt`, retained in packaged application notices. The font loads locally with no CDN or runtime network request. This is upstream JetBrains Mono, not a patched Nerd Font; ASCII and existing vector icons provide the small terminal glyphs.
+Copyright 2020 The JetBrains Mono Project Authors. Distributed under the SIL Open Font License 1.1; see the accompanying `OFL.txt`. These unused source assets are retained for reference; the current app uses system UI/code fonts and does not load or package these WOFF2 files. This is upstream JetBrains Mono, not a patched Nerd Font; ASCII and existing vector icons provide the small terminal glyphs.
 
 SHA-256:
 
