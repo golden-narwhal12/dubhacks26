@@ -1,5 +1,9 @@
 # Status
 
+## Recorded demo — 18 October, 02:23 PDT
+
+Delivered `artifacts/demos/mudroom-demo.mp4`, a real-time uninterrupted 55.8-second actual Electron capture: typed request → live part search → actual circuit/source transaction → Verify/compile → external simavr output. Current trace-agent-14/tools trace-tools-13 with Gemini 3.5 Flash-Lite passed all eleven LED creation artifact checks: six requests, four successful tools, 62,208 reported tokens. Exact source compiled (2,626 flash bytes/213 SRAM), with real UART output and 17 sampled MCU transitions. No fixtures/replay/manual circuit repairs or physical operations. Video decoding, dimensions/frame rate and screenshots were checked. User project/profile and credential configuration were preserved; nothing published. See [demo](demo.md).
+
 ## Theme milestone — 18 October
 
 Latest visual feedback: restored the previous system UI and SFMono/Menlo editor fonts, retaining the mudroom name, colors, icons and layout. Removed custom font loading and the monospace conversation-label override. Font-only verification passed: production build, two focused actual Electron foundation/native Settings checks, screenshot inspection and refreshed macOS bundle.
@@ -34,7 +38,7 @@ All **12 real toolchain checks passed**, including Mega/ESP32 compilation, exact
 
 Earlier frozen versions have genuine live LED creation, continuation and diagnostic Explain/Fix passes. **This follow-up has no new complete live servo/encoder pass.** New isolated batches exposed real failures: exact-ID catalog search, oversized function schemas/malformed calls, board-rail servo power left unresolved, final answers focused only on the last repair, and raw ADC counts mislabeled as blocked state. General search/tool/runtime/diagnostic fixes were implemented and regression tested; the oracles were not relaxed.
 
-Latest retries repeatedly returned Gemini HTTP 503, including before any tools. Paid retries were stopped after bounded attempts; no fallback provider/model was used. See [evaluation](evaluation.md) for batch versions, counts and failures. The current v13 software path is fixture-tested and the manual complete design compiles, but v13 live end-to-end creation remains unverified. Other provider adapters remain fixture-checked and live-unverified.
+Earlier follow-up retries repeatedly returned Gemini HTTP 503, including before any tools. The later current-version LED recording above succeeded live. Paid retries were stopped after bounded attempts; no fallback provider/model was used. See [evaluation](evaluation.md) for batch versions, counts and failures. The current v13 software path is fixture-tested and the manual complete design compiles, but v13 live end-to-end creation remains unverified. Other provider adapters remain fixture-checked and live-unverified.
 
 ## Run, reset and next
 
