@@ -28,6 +28,8 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { useWorkspace } from './store';
+import { servoEncoderProject } from '../domain/servoExample';
+import servoExampleSource from '../../examples/servo-encoder/sketch.ino?raw';
 import { Circuit } from './Circuit';
 import { Code } from './Code';
 import { Agent } from './Agent';
@@ -142,6 +144,12 @@ export function App() {
       switch (a) {
         case 'new':
           current.reset(true);
+          break;
+        case 'servo-example':
+          current.replaceProject(
+            servoEncoderProject(servoExampleSource),
+            'Open manual servo and encoder example',
+          );
           break;
         case 'example':
           current.reset();
@@ -355,14 +363,25 @@ export function App() {
         )}
         <button
           className="issues-button"
+          style={{
+            color: s.diagnostics.some((d) => d.severity === 'error')
+              ? 'var(--danger)'
+              : s.diagnostics.some((d) => d.severity === 'warning')
+                ? 'var(--warning)'
+                : 'var(--accent)',
+          }}
           title="Issues and output"
           aria-label="Issues and output"
           onClick={() =>
             useWorkspace.setState({ outputOpen: !s.outputOpen, outputTab: 'diagnostics' })
           }
         >
-          <AlertTriangle size={13} />
-          {s.diagnostics.filter((d) => d.severity === 'error').length || ''}
+          {s.diagnostics.some((d) => d.severity === 'error' || d.severity === 'warning') ? (
+            <AlertTriangle size={15} />
+          ) : (
+            <CheckCircle2 size={15} />
+          )}
+          {s.diagnostics.filter((d) => d.severity === 'error' || d.severity === 'warning').length}
         </button>
         <div className="segmented workspace-switch" aria-label="Workspace">
           {(['prototype', 'debug'] as const).map((w) => (

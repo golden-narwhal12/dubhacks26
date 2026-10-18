@@ -76,10 +76,24 @@ function simplify(points: Point[]) {
 function lead(t: RouteTerminal, obstacles: Obstacle[], lane: number): Point {
   const own = obstacles.find((r) => r.id === t.componentId),
     n = 16 + lane * 7;
-  if (t.side === 'left') return { x: Math.min(t.x, own?.x ?? t.x) - n, y: t.y };
-  if (t.side === 'right') return { x: Math.max(t.x, own ? own.x + own.width : t.x) + n, y: t.y };
-  if (t.side === 'top') return { x: t.x, y: Math.min(t.y, own?.y ?? t.y) - n };
-  return { x: t.x, y: Math.max(t.y, own ? own.y + own.height : t.y) + n };
+  const end =
+    t.side === 'left'
+      ? { x: Math.min(t.x, own?.x ?? t.x) - n, y: t.y }
+      : t.side === 'right'
+        ? { x: Math.max(t.x, own ? own.x + own.width : t.x) + n, y: t.y }
+        : t.side === 'top'
+          ? { x: t.x, y: Math.min(t.y, own?.y ?? t.y) - n }
+          : { x: t.x, y: Math.max(t.y, own ? own.y + own.height : t.y) + n };
+  // A nearby name tag can cap a long lead-out. Turn before it instead of drawing
+  // through text or declaring an otherwise routable terminal blocked.
+  for (const r of obstacles) {
+    if (r.id === t.componentId || !segmentHitsBody(t, end, r)) continue;
+    if (t.side === 'top' && r.y + r.height < t.y) end.y = Math.max(end.y, r.y + r.height + 8);
+    if (t.side === 'bottom' && r.y > t.y) end.y = Math.min(end.y, r.y - 8);
+    if (t.side === 'left' && r.x + r.width < t.x) end.x = Math.max(end.x, r.x + r.width + 8);
+    if (t.side === 'right' && r.x > t.x) end.x = Math.min(end.x, r.x - 8);
+  }
+  return end;
 }
 class MinQueue<T extends { f: number }> {
   items: T[] = [];

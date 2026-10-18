@@ -66,6 +66,7 @@ export function installMenu(window: () => BrowserWindow) {
         action('Verify', 'verify', 'CmdOrCtrl+R'),
         action('Simulate Mega Firmware', 'simulate'),
         action('Reset Indicator Example', 'example'),
+        action('Servo and Encoder Example', 'servo-example'),
         { type: 'separator' },
         action('Undo Project Change', 'undo-project'),
         action('Redo Project Change', 'redo-project'),

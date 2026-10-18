@@ -233,6 +233,12 @@ export async function runToolchain(
         writeFile(join(sketch, names[index]), file.content, { encoding: 'utf8', mode: 0o600 }),
       ),
     );
+    const libraryRoot = join(localToolRoot, 'libraries');
+    let libraryArguments: string[] = [];
+    try {
+      await access(join(libraryRoot, 'Servo/library.properties'));
+      libraryArguments = ['--libraries', libraryRoot];
+    } catch {}
     const compiled = await runBoundedProcess(
       confined.launcher,
       [
@@ -250,11 +256,12 @@ export async function runToolchain(
         build,
         '--warnings',
         'default',
+        ...libraryArguments,
         sketch,
       ],
       { cwd: directory, signal, timeoutMs: 120000, environment },
     );
-    const buildOutput = `${part.name} · ${fqbn}\n${compiled.output}`;
+    const buildOutput = `${part.name} · ${fqbn}\n${libraryArguments.length ? 'Available bundled library: Servo 1.3.0 (unchanged official source)\n' : ''}${compiled.output}`;
     if (compiled.cancelled) return result(false, `${buildOutput}\nCancelled.`);
     if (compiled.truncated)
       return result(false, `${buildOutput}\nStopped: build output exceeded ${OUTPUT_LIMIT} bytes.`);

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { runBoundedProcess, runToolchain, prepareFirmwareArtifact } from '../desktop/toolchain';
 import { exampleProject } from '../src/domain/example';
 import { prepareConfinement } from '../desktop/confinement';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises';
+import { servoEncoderProject } from '../src/domain/servoExample';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -153,6 +154,37 @@ describe.skipIf(process.env.TRACE_LIVE_TOOLCHAIN !== '1')(
   },
 );
 
+it.skipIf(process.env.TRACE_LIVE_TOOLCHAIN !== '1')(
+  'compiles the complete visible servo/encoder example without changing its source',
+  async () => {
+    const source = await readFile('examples/servo-encoder/sketch.ino', 'utf8');
+    const p = servoEncoderProject(source),
+      result = await runToolchain(
+        { project: p, requestId: 'complete-servo-example', simulate: false },
+        new AbortController().signal,
+      );
+    expect(result.success, result.output).toBe(true);
+    expect(p.files[0].content).toBe(source);
+  },
+  130000,
+);
+it.skipIf(process.env.TRACE_LIVE_TOOLCHAIN !== '1')(
+  'compiles visible Servo.h firmware against the fixed pinned library without source injection',
+  async () => {
+    const p = exampleProject();
+    const visible =
+      '#include <Servo.h>\nServo actuator;\nconstexpr int LED_PIN=13;\nvoid setup(){pinMode(LED_PIN,OUTPUT);actuator.attach(9,1000,2000);actuator.write(90);}\nvoid loop(){delay(20);}\n';
+    p.files[0].content = visible;
+    const result = await runToolchain(
+      { project: p, requestId: 'pinned-servo', simulate: false },
+      new AbortController().signal,
+    );
+    expect(result.success, result.output).toBe(true);
+    expect(result.output).toContain('Servo 1.3.0');
+    expect(p.files[0].content).toBe(visible);
+  },
+  130000,
+);
 it.skipIf(process.env.TRACE_LIVE_TOOLCHAIN !== '1')(
   'retains an exact immutable build for review without programming',
   async () => {

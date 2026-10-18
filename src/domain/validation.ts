@@ -3,6 +3,7 @@ import { endpointKey } from './schema';
 import { deriveNets, netFor } from './topology';
 import { terminal, type Command } from './project';
 import { partById } from '../parts/catalog';
+import { signalEndpoints, netVoltage } from './interfaces';
 
 export interface Diagnostic {
   id: string;
@@ -70,6 +71,42 @@ export function validateCircuit(p: Project): Diagnostic[] {
   const add = (d: Omit<Diagnostic, 'revision'>) => result.push({ ...d, revision: p.revision });
   for (const c of p.components) {
     const part = partById(c.partId);
+    if (part.operatingSupply) {
+      const requirement = part.operatingSupply,
+        voltage = netVoltage(p, { componentId: c.id, terminalId: requirement.terminalId });
+      if (voltage === undefined || voltage < requirement.minV || voltage > requirement.maxV)
+        add({
+          id: `operating-supply-${c.id}`,
+          severity: 'error',
+          requiresAgentResolution: true,
+          layer: 'electrical',
+          title: `${c.ref}: ${voltage === undefined ? 'supply source missing' : `${voltage} V outside operating range`}`,
+          detail: `Document a ${requirement.minV}–${requirement.maxV} V source. ${requirement.conditions}. Recommended operation is distinct from absolute maximum ratings; logic/load/power are separate checks.`,
+          objectIds: [c.id],
+          rule: 'part.operating-supply',
+          evidenceIds: part.evidence.map((e) => e.id),
+        });
+      const grounds = part.terminals.filter((t) => t.kind === 'ground');
+      if (
+        grounds.length &&
+        !grounds.some((t) =>
+          netFor(nets, { componentId: c.id, terminalId: t.id })?.terminals.some(
+            (e) => e.componentId !== c.id && terminal(p, e).kind === 'ground',
+          ),
+        )
+      )
+        add({
+          id: `required-ground-${c.id}`,
+          severity: 'error',
+          requiresAgentResolution: true,
+          layer: 'electrical',
+          title: `${c.ref}: ground reference missing`,
+          detail: 'Document the device ground return; visual proximity is not connectivity.',
+          objectIds: [c.id],
+          rule: 'part.required-ground',
+          evidenceIds: part.evidence.map((e) => e.id),
+        });
+    }
     if (!part.verifiedMapping)
       add({
         id: `mapping-${c.id}`,
@@ -96,9 +133,41 @@ export function validateCircuit(p: Project): Diagnostic[] {
       });
   }
   for (const net of nets) {
-    const terminals = net.terminals.map((e) => ({ e, t: terminal(p, e) }));
-    const powers = terminals.filter((x) => x.t.kind === 'power' && x.t.voltage && x.t.voltage > 0);
+    const terminals = net.terminals.map((e) => {
+      const c = p.components.find((c) => c.id === e.componentId)!;
+      return {
+        e,
+        t: {
+          ...terminal(p, e),
+          ...(partById(c.partId).kind === 'supply' && e.terminalId === 'positive'
+            ? { voltage: c.config.supplyVoltageV }
+            : {}),
+        },
+      };
+    });
+    const powers = terminals.filter(
+      (x) =>
+        x.t.kind === 'power' &&
+        x.t.voltage &&
+        x.t.voltage > 0 &&
+        ['board', 'supply'].includes(
+          partById(p.components.find((c) => c.id === x.e.componentId)!.partId).kind,
+        ),
+    );
     const ground = terminals.some((x) => x.t.kind === 'ground');
+    if (new Set(powers.map((x) => x.t.voltage)).size > 1)
+      add({
+        id: `rails-${net.id}`,
+        severity: 'error',
+        requiresAgentResolution: true,
+        layer: 'electrical',
+        title: 'Different supply rails connected directly',
+        detail:
+          'Known source voltages share one explicit net. Separate the supplies and use a suitable interface; wire color does not establish voltage.',
+        objectIds: [...net.wireIds, ...net.terminals.map((e) => e.componentId)],
+        rule: 'supply.conflicting-rails',
+        evidenceIds: [],
+      });
     if (ground && powers.length)
       add({
         id: `short-${net.id}`,
@@ -179,11 +248,9 @@ export function validateCircuit(p: Project): Diagnostic[] {
     const n = netFor(nets, b.target);
     const candidates = [
       ...new Map(
-        (
-          n?.terminals.filter(
-            (e) => e.componentId === b.boardId && terminal(p, e).kind === 'gpio',
-          ) ?? []
-        ).map((e) => [terminal(p, e).gpio ?? e.terminalId, e]),
+        signalEndpoints(p, b.target)
+          .filter((e) => e.componentId === b.boardId && terminal(p, e).kind === 'gpio')
+          .map((e) => [terminal(p, e).gpio ?? e.terminalId, e]),
       ).values(),
     ];
     const observed = candidates.length === 1 ? candidates[0] : undefined;
@@ -197,7 +264,7 @@ export function validateCircuit(p: Project): Diagnostic[] {
         layer: 'firmware',
         title: `${b.symbol}: ${candidates.length ? 'ambiguous GPIO net' : 'signal is disconnected'}`,
         detail:
-          'The bound signal must share an explicit net with exactly one board GPIO. No automatic pin choice is safe here.',
+          'The bound signal must reach exactly one board GPIO through explicit wiring or a documented translator channel. No automatic pin choice is safe here.',
         objectIds: [b.boardId, b.target.componentId],
         rule: 'binding.connectivity',
         evidenceIds: [],
@@ -520,7 +587,7 @@ export function validateCircuit(p: Project): Diagnostic[] {
       )
         add({
           id: `servo-power-${component.id}`,
-          requiresPhysicalFacts: true,
+          requiresAgentResolution: true,
           severity: 'warning',
           layer: 'electrical',
           title: `${component.ref}: board supply capacity unverified`,
@@ -529,7 +596,8 @@ export function validateCircuit(p: Project): Diagnostic[] {
           objectIds: [component.id, ...connected('power').map((e) => e.componentId)],
           rule: 'servo.supply-capacity',
           evidenceIds: ['sg90-reference'],
-          nextAction: 'Resolve the actual servo power source before physical operation.',
+          nextAction:
+            'Add external-dc-supply with declared intended voltage, preserve common ground and servo control. Actual supply/load capacity still requires physical confirmation.',
         });
       if (
         part.kind === 'encoder' &&
@@ -541,7 +609,7 @@ export function validateCircuit(p: Project): Diagnostic[] {
       )
         add({
           id: `encoder-bus-${component.id}`,
-          requiresPhysicalFacts: true,
+          requiresAgentResolution: true,
           severity: 'warning',
           layer: 'electrical',
           title: `${component.ref}: I²C logic and pull-ups need review`,
@@ -550,13 +618,25 @@ export function validateCircuit(p: Project): Diagnostic[] {
           objectIds: [component.id, ...connected('sda').map((e) => e.componentId)],
           rule: 'encoder.bus-interface',
           evidenceIds: ['as-photo'],
-          nextAction: 'Confirm the module circuit and interface; never assume 5 V tolerance.',
+          nextAction:
+            'Add an appropriate documented I²C level shifter with both reference supplies and common ground; preserve both data paths. Never assume 5 V tolerance.',
         });
       const supply = part.kind === 'encoder' ? 'vcc' : 'power';
-      if (!connected(supply).length || !connected('gnd').length)
+      const hasSource = connected(supply).some((e) => {
+        const c = p.components.find((c) => c.id === e.componentId)!,
+          kind = partById(c.partId).kind;
+        return (
+          (kind === 'board' && terminal(p, e).kind === 'power') ||
+          (kind === 'supply' &&
+            e.terminalId === 'positive' &&
+            c.config.supplyVoltageV !== undefined)
+        );
+      });
+      if (!hasSource || !connected('gnd').length)
         add({
           id: `supply-${component.id}`,
-          severity: 'warning',
+          severity: 'error',
+          requiresAgentResolution: true,
           layer: 'electrical',
           title: `${component.ref}: supply wiring incomplete`,
           detail:
@@ -567,7 +647,97 @@ export function validateCircuit(p: Project): Diagnostic[] {
           rule: 'part.supply-documentation',
           evidenceIds: part.evidence.map((e) => e.id),
         });
+      if (part.kind === 'encoder') {
+        const analog = signalEndpoints(p, { componentId: component.id, terminalId: 'out' }).some(
+          (e) => terminal(p, e).kind === 'gpio',
+        );
+        const connectedBus = (pin: string) =>
+          signalEndpoints(p, { componentId: component.id, terminalId: pin }).some(
+            (e) => e.componentId !== component.id && terminal(p, e).kind === 'gpio',
+          );
+        if (!analog && (!connectedBus('sda') || !connectedBus('scl')))
+          add({
+            id: `encoder-data-${component.id}`,
+            severity: 'error',
+            requiresAgentResolution: true,
+            layer: 'electrical',
+            title: `${component.ref}: encoder data path incomplete`,
+            detail:
+              'Power alone does not report angle. Document both I²C lines through a suitable interface, or an explicitly configured OUT path. Removing bus wires does not repair a logic mismatch.',
+            objectIds: [component.id],
+            rule: 'encoder.data-path',
+            evidenceIds: ['as-photo'],
+          });
+      }
+      if (
+        part.kind === 'servo' &&
+        !signalEndpoints(p, { componentId: component.id, terminalId: 'signal' }).some(
+          (e) => terminal(p, e).kind === 'gpio',
+        )
+      )
+        add({
+          id: `servo-control-${component.id}`,
+          severity: 'error',
+          requiresAgentResolution: true,
+          layer: 'electrical',
+          title: `${component.ref}: servo control is disconnected`,
+          detail:
+            'A powered servo still needs an explicit controller signal and common ground. A software command is not measured feedback.',
+          objectIds: [component.id],
+          rule: 'servo.control-path',
+          evidenceIds: ['sg90-reference'],
+        });
+      const board = p.components.find((c) => c.id === p.targetBoardId);
+      const boardGround =
+        board && partById(board.partId).terminals.find((t) => t.kind === 'ground');
+      if (
+        board &&
+        boardGround &&
+        connected('gnd').length &&
+        netFor(nets, { componentId: component.id, terminalId: 'gnd' })?.id !==
+          netFor(nets, { componentId: board.id, terminalId: boardGround.id })?.id
+      )
+        add({
+          id: `reference-${component.id}`,
+          severity: 'error',
+          requiresAgentResolution: true,
+          layer: 'electrical',
+          title: `${component.ref}: controller ground reference missing`,
+          detail:
+            'External supply negative, controller ground and peripheral reference must be explicitly documented as common for this non-isolated interface.',
+          objectIds: [component.id, board.id],
+          rule: 'part.common-reference',
+          evidenceIds: part.evidence.map((e) => e.id),
+        });
     }
+  }
+  for (const c of p.components.filter((c) => c.partId === 'adafruit-757')) {
+    const low = netVoltage(p, { componentId: c.id, terminalId: 'lv' }),
+      high = netVoltage(p, { componentId: c.id, terminalId: 'hv' });
+    const grounds = netFor(nets, { componentId: c.id, terminalId: 'gnd' })?.terminals ?? [];
+    const grounded = grounds.some(
+      (e) => e.componentId !== c.id && terminal(p, e).kind === 'ground',
+    );
+    if (
+      low === undefined ||
+      high === undefined ||
+      !grounded ||
+      low >= high ||
+      low < 1.8 ||
+      high > 10
+    )
+      add({
+        id: `translator-supply-${c.id}`,
+        severity: 'error',
+        requiresAgentResolution: true,
+        layer: 'electrical',
+        title: `${c.ref}: level-shifter supplies need wiring`,
+        detail:
+          'Connect LV to the low-voltage reference, HV to the higher-voltage reference, and ground to both systems. These open-drain channels have onboard pull-ups; they are not supply or motor drivers. Declared 1.8–10 V operating scope does not verify an unknown module.',
+        objectIds: [c.id],
+        rule: 'translator.references',
+        evidenceIds: partById(c.partId).evidence.map((e) => e.id),
+      });
   }
   add({
     id: 'coverage',
@@ -624,6 +794,41 @@ export function validateCircuit(p: Project): Diagnostic[] {
         nextAction: 'Align the channel field/parser with visible firmware output.',
       });
     const component = p.components.find((c) => c.id === mapping.componentId);
+    const stateLabel = /\b(state|blocked|pressed|closed|open)\b/i.test(
+      mapping.label + ' ' + mapping.field.replace(/_/g, ' '),
+    );
+    const fieldPattern = mapping.field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const literalRawState =
+      stateLabel &&
+      p.files.some((file) => {
+        const variables = [
+          ...file.content.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*=\s*analogRead\s*\([^;]+\)\s*;/g),
+        ].map((m) => m[1]);
+        return variables.some((name) =>
+          new RegExp(
+            `["']${fieldPattern}=["']\\s*\\)\\s*;\\s*Serial\\.(?:print|println)\\s*\\(\\s*${name}\\s*\\)`,
+          ).test(file.content),
+        );
+      });
+    if (
+      stateLabel &&
+      mapping.meaning !== 'count' &&
+      (/counts?/i.test(mapping.units) ||
+        ['measurement', 'raw'].includes(mapping.meaning) ||
+        literalRawState)
+    )
+      add({
+        id: `telemetry-state-${mapping.id}`,
+        severity: 'warning',
+        requiresAgentResolution: true,
+        layer: 'firmware',
+        title: `${mapping.label}: raw reading is not a discrete state`,
+        detail:
+          'A state/blocked readout must report the actual derived state with declared semantics. Raw ADC counts are not automatically a blocked/pressed boolean. Use visible digitalRead or a documented threshold/calibration, publish that state, and map it as state; keep a separate raw channel if useful. This check only recognizes simple literal reporting, not arbitrary code.',
+        objectIds: [mapping.id, ...(mapping.componentId ? [mapping.componentId] : [])],
+        rule: 'telemetry.state-semantics',
+        evidenceIds: [],
+      });
     if (component && partById(component.partId).kind === 'board' && mapping.terminalId) {
       const related =
         netFor(nets, {

@@ -4,6 +4,7 @@ import type { Component, Endpoint, Project } from '../domain/schema';
 import { deriveNets, netFor } from '../domain/topology';
 import { constantValue, validateCircuit } from '../domain/validation';
 import { partById } from '../parts/catalog';
+import { signalEndpoints } from '../domain/interfaces';
 import type { RunResult } from '../services/bridge';
 import type { EvaluationCase } from './cases';
 
@@ -471,12 +472,18 @@ export function evaluateArtifacts(
               hasLiteralRead('analogRead', at(c, 'out')) &&
               /analog|OUT|calibrat/i.test(transcript);
             const i2c =
-              boardGpios(at(c, 'sda'), 'i2c').some((ep) =>
-                ['sda', 'd20'].includes(ep.terminalId),
-              ) &&
-              boardGpios(at(c, 'scl'), 'i2c').some((ep) =>
-                ['scl', 'd21'].includes(ep.terminalId),
-              ) &&
+              signalEndpoints(p, { componentId: c.id, terminalId: 'sda' })
+                .filter(
+                  (ep) =>
+                    terminal(p, ep).kind === 'gpio' && terminal(p, ep).capabilities.includes('i2c'),
+                )
+                .some((ep) => ['sda', 'd20'].includes(ep.terminalId)) &&
+              signalEndpoints(p, { componentId: c.id, terminalId: 'scl' })
+                .filter(
+                  (ep) =>
+                    terminal(p, ep).kind === 'gpio' && terminal(p, ep).capabilities.includes('i2c'),
+                )
+                .some((ep) => ['scl', 'd21'].includes(ep.terminalId)) &&
               /Wire\.(?:requestFrom|read|beginTransmission)/.test(analysisCode) &&
               /pull.?up|level.?shift|3\.3/.test(transcript);
             return supplySafe && (analog || i2c);
@@ -500,13 +507,18 @@ export function evaluateArtifacts(
         servos.length > 0 &&
           servos.every(
             (c) =>
+              members(at(c, 'power')).some(
+                (ep) =>
+                  p.components.find((x) => x.id === ep.componentId)?.partId ===
+                    'external-dc-supply' && ep.terminalId === 'positive',
+              ) &&
               !members(at(c, 'power')).some(
                 (ep) =>
                   p.components.find((x) => x.id === ep.componentId)?.partId === 'arduino-mega-r3',
               ),
           ) &&
           /external.{0,35}(?:power|supply)|(?:power|supply).{0,35}external/i.test(transcript),
-        'Generic servo load is not silently assigned to an unverified Mega power budget; missing external equipment is explicit.',
+        'A modeled external source supplies the servo with common ground; actual availability/current capability remain physical checks. A disconnected power terminal is not a repair.',
       );
       add(
         'mechanical-calibration-boundary',

@@ -1,4 +1,15 @@
-import { useCallback, useMemo, useState, useEffect, useRef, useId } from 'react';
+import {
+  useCallback,
+  useMemo,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useId,
+  type ReactNode,
+  type RefObject,
+} from 'react';
+import { createPortal } from 'react-dom';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -29,7 +40,7 @@ import {
   ExternalLink,
   RotateCw,
   CheckCircle2,
-  CornerUpRight,
+  CircleAlert,
   Scan,
 } from 'lucide-react';
 import { partById, searchParts } from '../parts/catalog';
@@ -88,6 +99,7 @@ function baseGeometry(
     return { width: 212, height: 870, pins };
   }
   if (part.kind !== 'board') {
+    const { width, height } = illustrationSize(part);
     const layouts: Record<string, string[][]> = {
       encoder: [
         ['vcc', 'out', 'gnd'],
@@ -99,19 +111,29 @@ function baseGeometry(
         ['a', 'k'],
         ['c', 'e'],
       ],
+      supply: [['negative'], ['positive']],
+      'level-shifter': [
+        ['lv', 'lv1', 'lv2', 'lv3', 'lv4'],
+        ['hv', 'hv1', 'hv2', 'hv3', 'hv4', 'gnd'],
+      ],
     };
-    const rows = layouts[part.kind] ?? [part.terminals.map((t) => t.id), []];
+    const ids = part.terminals.map((t) => t.id);
+    const known = layouts[part.kind];
+    const rows =
+      known && ids.every((id) => known.flat().includes(id))
+        ? known
+        : [ids.slice(0, Math.ceil(ids.length / 2)), ids.slice(Math.ceil(ids.length / 2))];
     rows.forEach((row, side) =>
       row.forEach(
         (id, i) =>
           (pins[id] = {
-            x: side ? 130 : 0,
-            y: 28 + i * 25,
+            x: side ? width : 0,
+            y: rows[side].length === 1 ? height / 2 : 28 + i * 26,
             side: side ? Position.Right : Position.Left,
           }),
       ),
     );
-    return { width: 130, height: 130, pins };
+    return { width, height, pins };
   }
   if (part.id === 'esp32-s3-devkitc1-v11') {
     for (const t of part.terminals)
@@ -301,45 +323,100 @@ function Artwork({ part, view, component }: { part: Part; view: View; component?
       </svg>
     );
   }
-  if (part.kind !== 'board')
+  if (part.kind !== 'board') {
+    const { width, height } = illustrationSize(part),
+      cx = width / 2;
+    const label =
+      part.kind === 'encoder'
+        ? 'AS5600'
+        : part.kind === 'servo'
+          ? 'SG90'
+          : part.kind === 'photointerruptor'
+            ? 'ITR9608'
+            : part.kind === 'supply'
+              ? component?.config.supplyVoltageV !== undefined
+                ? `${component.config.supplyVoltageV} V DC`
+                : 'DC supply'
+              : part.kind === 'level-shifter'
+                ? 'I²C level shifter'
+                : part.kind === 'potentiometer'
+                  ? 'Potentiometer'
+                  : part.name;
     return (
-      <svg width="130" height="130" viewBox="0 0 130 130" className="board-art">
+      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="board-art">
         <rect
           x="12"
           y="9"
-          width="106"
-          height="112"
+          width={width - 24}
+          height={height - 18}
           rx="5"
-          fill={part.kind === 'servo' ? 'var(--chip)' : 'var(--board)'}
+          fill={['servo', 'supply'].includes(part.kind) ? 'var(--chip)' : 'var(--board)'}
           stroke="var(--metal)"
         />
         {part.kind === 'encoder' && (
           <>
-            <circle cx="65" cy="56" r="20" fill="var(--metal)" />
-            <rect x="53" y="44" width="24" height="24" fill="var(--chip)" />
+            <circle cx={cx} cy="56" r="20" fill="var(--metal)" />
+            <rect x={cx - 12} y="44" width="24" height="24" fill="var(--chip)" />
           </>
         )}
-        {part.kind === 'potentiometer' && <circle cx="65" cy="53" r="23" fill="var(--metal)" />}
+        {part.kind === 'potentiometer' && <circle cx={cx} cy="53" r="23" fill="var(--metal)" />}
         {part.kind === 'photointerruptor' && (
-          <path d="M30 30H48V78H82V30H100V96H30Z" fill="var(--chip)" stroke="var(--metal)" />
+          <path
+            d={`M${cx - 35} 30H${cx - 17}V78H${cx + 17}V30H${cx + 35}V96H${cx - 35}Z`}
+            fill="var(--chip)"
+            stroke="var(--metal)"
+          />
         )}
         {part.kind === 'servo' && (
           <>
-            <circle cx="65" cy="48" r="19" fill="var(--metal)" />
-            <path d="M30 48H100" stroke="var(--text)" strokeWidth="8" />
+            <circle cx={cx} cy="48" r="19" fill="var(--metal)" />
+            <path d={`M${cx - 35} 48H${cx + 35}`} stroke="var(--text)" strokeWidth="8" />
           </>
         )}
-        <text x="65" y="111" textAnchor="middle" fill="var(--text)" fontSize="11">
-          {part.kind === 'encoder'
-            ? 'AS5600'
-            : part.kind === 'servo'
-              ? 'SG90'
-              : part.kind === 'photointerruptor'
-                ? 'ITR9608'
-                : 'Potentiometer'}
+        {part.kind === 'supply' && (
+          <>
+            <circle cx={cx} cy="49" r="24" fill="none" stroke="var(--metal)" strokeWidth="2" />
+            <path
+              d={`M${cx - 9} 42H${cx + 9}M${cx} 33V51M${cx - 9} 60H${cx + 9}`}
+              stroke="var(--accent)"
+              strokeWidth="2"
+            />
+          </>
+        )}
+        {part.kind === 'level-shifter' && (
+          <>
+            <rect x={cx - 17} y="44" width="34" height="70" rx="3" fill="var(--chip)" />
+            <path
+              d={`M${cx - 10} 65H${cx + 10}M${cx + 5} 60L${cx + 10} 65L${cx + 5} 70M${cx + 10} 91H${cx - 10}M${cx - 5} 86L${cx - 10} 91L${cx - 5} 96`}
+              fill="none"
+              stroke="var(--accent)"
+            />
+          </>
+        )}
+        {![
+          'encoder',
+          'servo',
+          'photointerruptor',
+          'potentiometer',
+          'supply',
+          'level-shifter',
+        ].includes(part.kind) && (
+          <rect
+            x={cx - 18}
+            y={height / 2 - 18}
+            width="36"
+            height="36"
+            rx="3"
+            fill="var(--chip)"
+            stroke="var(--metal)"
+          />
+        )}
+        <text x={cx} y={height - 15} textAnchor="middle" fill="var(--text)" fontSize="10">
+          {label.length > 23 ? `${label.slice(0, 21)}…` : label}
         </text>
       </svg>
     );
+  }
   const esp = part.id.startsWith('esp32');
   const { width, height } = geometry(part, view);
   return (
@@ -457,6 +534,65 @@ type PartNode = Node<
   { component: Component; part: Part; view: View; highlighted: boolean; rotation: number },
   'part'
 >;
+/** Native nonmodal top layer: edges, floating Dockview groups and their transforms
+ * cannot cover the contents. Keep the anchor current while the canvas pans/zooms. */
+function CanvasPopover({
+  anchor,
+  owner,
+  label,
+  children,
+}: {
+  anchor: RefObject<HTMLElement | SVGElement | null>;
+  owner: string;
+  label: string;
+  children: ReactNode;
+}) {
+  const element = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const popup = element.current;
+    if (!popup) return;
+    popup.showPopover();
+    // Keep keyboard access local even though the overlay is portaled out of the
+    // canvas; pointer users can continue the original gesture without a focus jump.
+    if (document.activeElement === anchor.current && anchor.current?.matches(':focus-visible'))
+      popup.querySelector<HTMLElement>('button, [tabindex="0"]')?.focus();
+    let frame = 0;
+    const place = () => {
+      const rect = anchor.current?.getBoundingClientRect();
+      if (rect) {
+        const gap = 10,
+          size = popup.getBoundingClientRect();
+        const left =
+          rect.right + gap + size.width < window.innerWidth - gap
+            ? rect.right + gap
+            : Math.max(gap, rect.left - size.width - gap);
+        popup.style.left = `${Math.min(left, window.innerWidth - size.width - gap)}px`;
+        popup.style.top = `${Math.max(gap, Math.min(rect.top, window.innerHeight - size.height - gap))}px`;
+      }
+      frame = requestAnimationFrame(place);
+    };
+    place();
+    return () => {
+      cancelAnimationFrame(frame);
+      if (popup.matches(':popover-open')) popup.hidePopover();
+    };
+  }, [anchor]);
+  return createPortal(
+    <div
+      ref={element}
+      popover="manual"
+      className="part-issue-message canvas-popover nodrag nopan"
+      role="dialog"
+      aria-label={label}
+      data-issue-owner={owner}
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
 /** Observe outside gestures without consuming the selection, drag, pan or connection. */
 function useIssuePopover(hasIssues: boolean) {
   const [open, setOpen] = useState(false);
@@ -530,16 +666,14 @@ function PartNodeView({ data }: NodeProps<PartNode>) {
             issuePopover.setOpen(!issuePopover.open);
           }}
         >
-          <CornerUpRight size={12} />
+          <CircleAlert size={24} strokeWidth={2.5} />
         </button>
       )}
       {issuePopover.open && (
-        <div
-          className="part-issue-message nodrag nopan"
-          role="dialog"
-          aria-label={`${c.ref} diagnostics`}
-          data-issue-owner={issuePopover.owner}
-          onClick={(event) => event.stopPropagation()}
+        <CanvasPopover
+          anchor={issuePopover.trigger}
+          owner={issuePopover.owner}
+          label={`${c.ref} diagnostics`}
         >
           {issues.map((d) => (
             <div className="issue-popover-row" key={d.id}>
@@ -550,7 +684,7 @@ function PartNodeView({ data }: NodeProps<PartNode>) {
               <DiagnosticAgent diagnosticId={d.id} />
             </div>
           ))}
-        </div>
+        </CanvasPopover>
       )}
       <div className="part-name">
         <strong>{c.ref}</strong>
@@ -695,36 +829,37 @@ function RoutedEdge({ id, data, selected }: EdgeProps<Edge<{ route: WireRoute; c
           }}
           transform={`translate(${r.points[Math.floor(r.points.length / 2)].x},${r.points[Math.floor(r.points.length / 2)].y - 11})`}
         >
-          <circle r="8" fill="var(--panel)" stroke="var(--danger)" />
-          <text textAnchor="middle" y="4" fontSize="12" fill="var(--danger)">
-            ↪
+          <circle
+            r="12"
+            fill="var(--panel)"
+            stroke={issues.some((d) => d.severity === 'error') ? 'var(--danger)' : 'var(--warning)'}
+            strokeWidth="2"
+          />
+          <text
+            textAnchor="middle"
+            y="6"
+            fontSize="20"
+            fontWeight="700"
+            fill={issues.some((d) => d.severity === 'error') ? 'var(--danger)' : 'var(--warning)'}
+          >
+            !
           </text>
           {issuePopover.open && (
-            <foreignObject
-              x="12"
-              y="-12"
-              width="300"
-              height="260"
-              className="connection-issue-popover"
+            <CanvasPopover
+              anchor={issuePopover.trigger}
+              owner={issuePopover.owner}
+              label="Connection diagnostics"
             >
-              <div
-                className="part-issue-message nodrag nopan"
-                role="dialog"
-                aria-label="Connection diagnostics"
-                data-issue-owner={issuePopover.owner}
-                onClick={(event) => event.stopPropagation()}
-              >
-                {issues.map((d) => (
-                  <div className="issue-popover-row" key={d.id}>
-                    <div>
-                      <strong>{d.title}</strong>
-                      <p>{d.detail}</p>
-                    </div>
-                    <DiagnosticAgent diagnosticId={d.id} />
+              {issues.map((d) => (
+                <div className="issue-popover-row" key={d.id}>
+                  <div>
+                    <strong>{d.title}</strong>
+                    <p>{d.detail}</p>
                   </div>
-                ))}
-              </div>
-            </foreignObject>
+                  <DiagnosticAgent diagnosticId={d.id} />
+                </div>
+              ))}
+            </CanvasPopover>
           )}
         </g>
       )}
@@ -766,7 +901,8 @@ function CircuitCanvas() {
     selection = useWorkspace((s) => s.selection),
     select = useWorkspace((s) => s.select),
     apply = useWorkspace((s) => s.apply),
-    library = useWorkspace((s) => s.library);
+    library = useWorkspace((s) => s.library),
+    diagnostics = useWorkspace((s) => s.diagnostics);
   const flow = useReactFlow();
   const [dragNodes, setDragNodes] = useState<PartNode[] | null>(null);
   const [pan, setPan] = useState(false);
@@ -804,13 +940,39 @@ function CircuitCanvas() {
     [project, view, selection],
   );
   const displayed = dragNodes ?? nodes;
-  const obstacles = displayed.map((n) => ({
-    id: n.id,
-    x: n.position.x,
-    y: n.position.y,
-    width: Number(n.style?.width ?? 0),
-    height: Number(n.style?.height ?? 0),
-  }));
+  const obstacles = displayed.flatMap((n) => {
+    const label = `${n.data.component.ref} ${n.data.component.config.label ?? n.data.part.name}`;
+    const hasIssues = diagnostics.some(
+      (d) => d.objectIds.includes(n.id) && ['error', 'warning'].includes(d.severity),
+    );
+    return [
+      {
+        id: n.id,
+        x: n.position.x,
+        y: n.position.y,
+        width: Number(n.style?.width ?? 0),
+        height: Number(n.style?.height ?? 0),
+      },
+      {
+        id: `${n.id}:nametag`,
+        x: n.position.x - 4,
+        y: n.position.y - 48,
+        width: Math.min(248, label.length * 7 + 20),
+        height: 22,
+      },
+      ...(hasIssues
+        ? [
+            {
+              id: `${n.id}:issue`,
+              x: n.position.x + Number(n.style?.width ?? 0),
+              y: n.position.y - 36,
+              width: 32,
+              height: 32,
+            },
+          ]
+        : []),
+    ];
+  });
   const routes = routeWires(
     project.wires.flatMap((w) => {
       const terminal = (ep: typeof w.from) => {
@@ -841,7 +1003,8 @@ function CircuitCanvas() {
   useEffect(() => {
     if (needsFit) {
       const frame = requestAnimationFrame(() => {
-        fitRoutes();
+        // Automatic placement must not leave moving pin targets under the pointer.
+        void flow.fitBounds(routeBounds(routes, obstacles), { padding: 0.15, duration: 0 });
         setNeedsFit(false);
       });
       return () => cancelAnimationFrame(frame);
@@ -1411,6 +1574,58 @@ function ComponentProperties({ component: c, part }: { component: Component; par
             </label>
           ))}
         </details>
+      </>
+    );
+  const numericFields =
+    part.kind === 'supply'
+      ? [
+          { field: 'supplyVoltageV' as const, label: 'Voltage (V)', max: 1000 },
+          { field: 'supplyCurrentMa' as const, label: 'Rated current (mA)', max: 1e6 },
+        ]
+      : part.kind === 'capacitor'
+        ? [{ field: 'capacitanceFarads' as const, label: 'Capacitance (F)', max: 100 }]
+        : [];
+  if (numericFields.length)
+    return (
+      <>
+        {numericFields.map(({ field, label, max }) => (
+          <label className="field compact-property" key={field}>
+            {label}
+            <input
+              type="number"
+              aria-label={label}
+              key={`${c.id}-${field}-${c.config[field]}`}
+              min="0.000000000001"
+              max={max}
+              step="any"
+              placeholder="Unknown"
+              defaultValue={c.config[field] ?? ''}
+              onBlur={(event) => {
+                const value = Number(event.target.value);
+                if (!(value > 0 && value <= max)) {
+                  setError('Enter a positive value within the supported range.');
+                  return;
+                }
+                setError('');
+                if (
+                  value !==
+                  useWorkspace.getState().project.components.find((item) => item.id === c.id)
+                    ?.config[field]
+                )
+                  apply('Change component property', [
+                    { type: 'configureComponent', id: c.id, config: { [field]: value } },
+                  ]);
+              }}
+            />
+          </label>
+        ))}
+        {error && <small role="alert">{error}</small>}
+        {part.kind === 'supply' && (
+          <details>
+            <summary>Rating details</summary>
+            <small>Declared supply settings; current rating is capacity, not measured load.</small>
+          </details>
+        )}
       </>
     );
   return null;

@@ -1,5 +1,6 @@
 import type { Part, Terminal, Evidence } from '../domain/schema';
 import { expandedParts } from './expanded';
+import { additionalParts } from './additional';
 
 const megaEvidence: Evidence[] = [
   {
@@ -344,6 +345,7 @@ export const parts: Part[] = [
   },
 ];
 parts.push(...expandedParts);
+parts.push(...additionalParts);
 export const partById = (id: string) => {
   const p = parts.find((p) => p.id === id);
   if (!p) throw new Error(`Unsupported part package: ${id}`);
@@ -352,8 +354,16 @@ export const partById = (id: string) => {
 export const searchParts = (query: string) =>
   parts
     .filter((p) =>
-      `${p.name} ${p.manufacturer} ${p.mpn} ${p.description} ${p.terminals.flatMap((t) => t.capabilities).join(' ')}`
+      query
         .toLowerCase()
-        .includes(query.toLowerCase()),
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim()
+        .split(/\s+/)
+        .every((word) =>
+          `${p.id} ${p.name} ${p.manufacturer} ${p.mpn} ${p.description} ${p.terminals.flatMap((t) => t.capabilities).join(' ')}`
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, ' ')
+            .includes(word),
+        ),
     )
-    .slice(0, 20);
+    .slice(0, 100);

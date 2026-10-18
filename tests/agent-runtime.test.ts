@@ -8,6 +8,25 @@ import { blankProject } from '../src/domain/example';
 import { transact } from '../src/domain/project';
 import { agentInstructions, instructionVersion } from '../src/services/instructions';
 describe('task settings, accounting and compact tool protocol', () => {
+  it('retains reported usage on a malformed Gemini response without executing partial calls', () => {
+    const stream = new StreamAccumulator('gemini');
+    stream.push({
+      candidates: [
+        {
+          content: {
+            parts: [{ functionCall: { id: 'incomplete', name: 'project_changes', args: {} } }],
+          },
+          finishReason: 'MALFORMED_FUNCTION_CALL',
+        },
+      ],
+      usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 25, totalTokenCount: 125 },
+    });
+    expect(stream.finish()).toMatchObject({
+      calls: [],
+      recovery: { code: 'MALFORMED_FUNCTION_CALL' },
+      usage: { total: 125 },
+    });
+  });
   it('migrates new profiles and indistinguishable old built-ins, preserving explicit custom values', () => {
     expect(migrateAgentSettings(null)).toEqual(defaultLimits);
     expect(migrateAgentSettings({ reportedTokens: 24000, requests: 6 })).toEqual(defaultLimits);

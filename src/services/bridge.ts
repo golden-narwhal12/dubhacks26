@@ -23,6 +23,7 @@ export interface ToolCall {
   arguments: Record<string, unknown>;
 }
 export interface TurnResult {
+  recovery?: { code: 'MALFORMED_FUNCTION_CALL'; message: string };
   text: string;
   calls: ToolCall[];
   usage: import('./usage').NormalizedUsage;

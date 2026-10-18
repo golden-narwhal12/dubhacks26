@@ -20,7 +20,7 @@ Human and AI edits remain peers through one validated, undoable transaction laye
 
 ## Deferred
 
-Broad catalog, datasheet import, arbitrary firmware analysis, analog/SPICE co-simulation, cloud/accounts, collaboration platform, marketplace, OS detached windows and advanced schematic tooling. The current shared schematic provides basic symbols and independent layout. Physical upload and persistent serial now use explicit device selection and action-specific approvals; real-device verification remains pending. Exact unmet criteria are tracked in status.
+Further catalog coverage, datasheet import, arbitrary firmware analysis, analog/SPICE co-simulation, cloud/accounts, collaboration platform, marketplace, OS detached windows and advanced schematic tooling. The current shared schematic provides basic symbols and independent layout. Physical upload and persistent serial now use explicit device selection and action-specific approvals; real-device verification remains pending. Exact unmet criteria are tracked in status.
 
 ## Event planning
 
@@ -31,3 +31,5 @@ Checked 2026-10-17 at approximately 15:18 PDT: [Devpost](https://dubhacks-2026.d
 Prototype edits/checks source and wiring, selects an actual device, optionally emulates Mega code, and explicitly programs an immutable reviewed artifact. Debug inspects actual firmware serial output with explicit local telemetry mappings and bounded history. Shared project/agent context survives switching. Real programming succeeds before automatic Debug navigation; simulation is independent and never a prerequisite. No reporting helpers are secretly inserted. Hardware control by an agent always requires a separate specific user approval.
 
 Initial peripheral library covers the supplied AS5600 photo-matched module, generic SG90 and bare DIP-4 ITR9608, plus exact BB830 and generic potentiometer. Evidence/scope is recorded in [parts](parts.md). Diagram presence is not telemetry and commanded servo position is not measured feedback.
+
+Current catalog additions prioritize supporting power/interface hardware and common building blocks over execution models. See [catalog](catalog.md) for exact package scope and provisional generic assumptions. Normal reviewed local batches continue within the same task; questions have explicit selectable answers and free text. New Project resets the project conversation and transient execution state.

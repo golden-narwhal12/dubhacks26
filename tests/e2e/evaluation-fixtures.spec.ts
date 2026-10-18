@@ -3,7 +3,9 @@ import { freshSeed, getEvaluationCase } from '../../src/evaluation/cases';
 import { evaluateArtifacts } from '../../src/evaluation/oracles';
 import { exampleProject } from '../../src/domain/example';
 import type { Command } from '../../src/domain/project';
-for (const id of ['led', 'continue-circuit', 'repair-led', 'explain-led'])
+import { servoEncoderProject } from '../../src/domain/servoExample';
+import { readFileSync } from 'node:fs';
+for (const id of ['led', 'continue-circuit', 'repair-led', 'explain-led', 'servo-encoder'])
   test(`evaluation fixture uses real runtime, mutations and compiler: ${id}`, async () => {
     test.setTimeout(90000);
     const app = await electron.launch({
@@ -24,22 +26,28 @@ for (const id of ['led', 'continue-circuit', 'repair-led', 'explain-led'])
       await expect(page.getByText('Key stored', { exact: true })).toBeVisible();
       await page.getByRole('button', { name: 'Close settings', exact: true }).click();
       const seed = freshSeed(id),
-        desired = exampleProject(),
+        desired =
+          id === 'servo-encoder'
+            ? servoEncoderProject(readFileSync('examples/servo-encoder/sketch.ino', 'utf8'))
+            : exampleProject(),
         commands: Command[] = [];
-      if (id === 'led') {
+      if (id === 'led' || id === 'servo-encoder') {
         for (const component of desired.components)
           commands.push({
             type: 'addComponent',
             component,
             // Reproduce live model placements that overlap the large Mega illustration.
-            placement: { x: 50, y: 50, rotation: 0 },
+            placement:
+              id === 'led' ? { x: 50, y: 50, rotation: 0 } : desired.layouts.wiring[component.id],
           });
         for (const wire of desired.wires) commands.push({ type: 'connect', wire });
         for (const binding of desired.bindings) commands.push({ type: 'setBinding', binding });
         commands.push(
           { type: 'writeFile', file: desired.files[0] },
-          { type: 'setTarget', id: 'board' },
+          { type: 'setTarget', id: id === 'servo-encoder' ? 'mega' : 'board' },
         );
+        if (id === 'servo-encoder')
+          for (const mapping of desired.telemetry) commands.push({ type: 'setTelemetry', mapping });
       } else if (id === 'repair-led') {
         commands.push(
           { type: 'disconnect', id: 'direct-drive' },
@@ -113,7 +121,7 @@ void loop(){
       }
       await page.evaluate((seed) => (window as any).traceEvaluation.reset(seed), seed);
       await app.evaluate(
-        (_electron, { commands, explain }) => {
+        (_electron, { commands, explain, servo }) => {
           let round = 0;
           globalThis.fetch = async (_u: any, options: any) => {
             const body = JSON.parse(options.body),
@@ -140,12 +148,36 @@ void loop(){
                         {
                           functionCall: {
                             id: 'edit',
-                            name: 'project_changes',
-                            args: {
-                              expectedRevision: initial.project.revision,
-                              summary: 'Fixture supported project implementation',
-                              commands,
-                            },
+                            name: servo ? 'edit_circuit' : 'project_changes',
+                            args: servo
+                              ? {
+                                  expectedRevision: initial.project.revision,
+                                  summary: 'Fixture coordinated servo and encoder design',
+                                  add: commands
+                                    .filter((c) => c.type === 'addComponent')
+                                    .map((c: any) => ({
+                                      component: c.component,
+                                      placement: c.placement,
+                                    })),
+                                  connect: commands
+                                    .filter((c) => c.type === 'connect')
+                                    .map((c: any) => c.wire),
+                                  files: commands
+                                    .filter((c) => c.type === 'writeFile')
+                                    .map((c: any) => c.file),
+                                  bindings: commands
+                                    .filter((c) => c.type === 'setBinding')
+                                    .map((c: any) => c.binding),
+                                  telemetry: commands
+                                    .filter((c) => c.type === 'setTelemetry')
+                                    .map((c: any) => c.mapping),
+                                  targetBoardId: 'mega',
+                                }
+                              : {
+                                  expectedRevision: initial.project.revision,
+                                  summary: 'Fixture supported project implementation',
+                                  commands,
+                                },
                           },
                         },
                       ]
@@ -162,7 +194,9 @@ void loop(){
                       ]
                     : [
                         {
-                          text: 'The visible project changes compile. No physical device was accessed.',
+                          text: servo
+                            ? 'The documented external power supply and 3.3 V I2C level shifter are included. Visible source compiles. Couple and align the magnet to the shaft, then calibrate zero and direction; no physical device was accessed.'
+                            : 'The visible project changes compile. No physical device was accessed.',
                         },
                       ];
             return new Response(
@@ -170,7 +204,7 @@ void loop(){
             );
           };
         },
-        { commands, explain: id === 'explain-led' },
+        { commands, explain: id === 'explain-led', servo: id === 'servo-encoder' },
       );
       await page.evaluate(
         (goal) => (window as any).traceEvaluation.start(goal),
@@ -285,7 +319,18 @@ test('completion review returns unresolved physical facts without accepting a fa
               ? [{ text: 'The whole circuit is now physically verified.' }]
               : [
                   {
-                    text: 'Can you confirm the actual external servo power supply and its load rating? Compilation cannot establish that power path.',
+                    functionCall: {
+                      id: 'physical-question',
+                      name: 'ask_user',
+                      args: {
+                        question:
+                          'Which external servo power supply will be available? Compilation cannot establish load capacity.',
+                        options: [
+                          { label: 'Propose an external source' },
+                          { label: 'I will specify the supply' },
+                        ],
+                      },
+                    },
                   },
                 ];
         return new Response(
@@ -296,17 +341,12 @@ test('completion review returns unresolved physical facts without accepting a fa
     await page.evaluate(() =>
       (window as any).traceEvaluation.start('Prepare the servo circuit and reporting.'),
     );
-    await expect(
-      page.getByText(
-        'Can you confirm the actual external servo power supply and its load rating? Compilation cannot establish that power path.',
-        { exact: true },
-      ),
-    ).toBeVisible();
+    await expect(page.getByRole('form', { name: 'Agent question' })).toBeVisible();
     await expect(
       page.getByText('The whole circuit is now physically verified.', { exact: true }),
     ).not.toBeVisible();
     expect(JSON.stringify(await app.evaluate(() => (globalThis as any).__reviewBodies))).toContain(
-      'completion-review',
+      'implementation-review',
     );
     expect((await page.evaluate(() => (window as any).traceEvaluation.snapshot())).requests).toBe(
       3,

@@ -149,3 +149,33 @@ it('the same terminal can be a source or destination without losing its branch',
   );
   expect(routes.every((r) => !r.failed)).toBe(true);
 });
+it('turns dense top-header leads before reserved name tags and includes tags in fit', () => {
+  const obstacles: Obstacle[] = [
+    { id: 'mega', x: 0, y: 0, width: 704, height: 310 },
+    { id: 'mega:nametag', x: -4, y: -48, width: 248, height: 22 },
+    { id: 'module', x: 820, y: -160, width: 180, height: 188 },
+    { id: 'module:nametag', x: 816, y: -208, width: 220, height: 22 },
+  ];
+  const inputs: RouteInput[] = Array.from({ length: 6 }, (_, index) => ({
+    id: `header-${index}`,
+    from: { componentId: 'mega', terminalId: `d${index}`, x: 38 + index * 23, y: 0, side: 'top' },
+    to: {
+      componentId: 'module',
+      terminalId: `ch${index}`,
+      x: 820,
+      y: -132 + index * 26,
+      side: 'left',
+    },
+  }));
+  const routes = routeWires(inputs, obstacles);
+  expect(routes.every((route) => !route.failed)).toBe(true);
+  for (const route of routes) {
+    expect(
+      segments(route).some(({ a, b }) => obstacles.some((body) => segmentHitsBody(a, b, body))),
+    ).toBe(false);
+    expect(route.points[0]).toMatchObject(inputs.find((input) => input.id === route.id)!.from);
+    expect(route.points.at(-1)).toMatchObject(inputs.find((input) => input.id === route.id)!.to);
+  }
+  const fit = routeBounds(routes, obstacles);
+  expect(fit.y).toBeLessThan(-208);
+});

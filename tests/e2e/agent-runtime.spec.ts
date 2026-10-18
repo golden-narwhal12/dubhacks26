@@ -1,5 +1,7 @@
 import { test, expect, _electron as electron } from '@playwright/test';
 import { menuAction } from './helpers';
+import { readFileSync } from 'node:fs';
+import { servoEncoderProject } from '../../src/domain/servoExample';
 async function setup(page: any, app: any, threshold = 1_000_000) {
   await page.evaluate(
     ({ threshold }: { threshold: number }) => {
@@ -20,6 +22,73 @@ async function setup(page: any, app: any, threshold = 1_000_000) {
   await expect(page.getByText('Key stored', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Close settings', exact: true }).click();
 }
+test('targeted encoder repair rejects disconnecting data lines before review or mutation', async () => {
+  const app = await electron.launch({ args: ['.'], env: { ...process.env, TRACE_TEST: '1' } });
+  try {
+    const page = await app.firstWindow();
+    const project = servoEncoderProject(readFileSync('examples/servo-encoder/sketch.ino', 'utf8'));
+    project.wires = project.wires.filter((w) => !['data-high', 'clock-high'].includes(w.id));
+    project.wires.find((w) => w.id === 'data-low')!.from = {
+      componentId: 'mega',
+      terminalId: 'd20',
+    };
+    project.wires.find((w) => w.id === 'clock-low')!.from = {
+      componentId: 'mega',
+      terminalId: 'd21',
+    };
+    await page.evaluate((p) => localStorage.setItem('trace.draft.v1', JSON.stringify(p)), project);
+    await setup(page, app);
+    const before = await page.evaluate(() => localStorage.getItem('trace.draft.v1'));
+    await app.evaluate((_electron, revision) => {
+      let n = 0;
+      (globalThis as any).__repairResponses = [];
+      globalThis.fetch = async (_url: any, options: any) => {
+        (globalThis as any).__repairResponses.push(JSON.parse(options.body).contents);
+        const functionCall =
+          n++ === 0
+            ? {
+                id: 'unsafe-repair',
+                name: 'edit_circuit',
+                args: {
+                  expectedRevision: revision,
+                  summary: 'Remove incompatible bus',
+                  disconnectWireIds: ['data-low', 'clock-low'],
+                },
+              }
+            : {
+                id: 'needed-equipment',
+                name: 'ask_user',
+                args: {
+                  question: 'Is an appropriate converter available?',
+                  options: [{ label: 'Yes' }, { label: 'Not yet' }],
+                },
+              };
+        return new Response(
+          `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ functionCall }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 10 } })}\n\n`,
+        );
+      };
+    }, project.revision);
+    await page.evaluate(() =>
+      window.dispatchEvent(
+        new CustomEvent('trace:diagnostic-request', {
+          detail: { id: 'encoder-bus-encoder', action: 'fix' },
+        }),
+      ),
+    );
+    await expect(page.getByRole('form', { name: 'Agent question' })).toBeVisible();
+    expect(
+      JSON.stringify(await app.evaluate(() => (globalThis as any).__repairResponses)),
+    ).toContain('Removing required wires is not a repair');
+    expect(await page.evaluate(() => localStorage.getItem('trace.draft.v1'))).toBe(before);
+    await expect(page.getByText('Proposed change', { exact: true })).not.toBeVisible();
+    await page
+      .getByRole('form', { name: 'Agent question' })
+      .getByRole('button', { name: 'Cancel', exact: true })
+      .click();
+  } finally {
+    await app.close();
+  }
+});
 test('threshold pauses unexecuted duplicate-stream mutation, Settings persist and resume executes it once', async () => {
   const app = await electron.launch({ args: ['.'], env: { ...process.env, TRACE_TEST: '1' } });
   try {
@@ -75,7 +144,7 @@ test('threshold pauses unexecuted duplicate-stream mutation, Settings persist an
       ),
     ).toBe(1000000);
     await page.getByRole('button', { name: 'Close settings', exact: true }).click();
-    await page.getByRole('button', { name: 'Resume task', exact: true }).click();
+    await page.getByRole('button', { name: 'Continue task', exact: true }).click();
     await expect(
       page.getByText('The reviewed local edit is complete.', { exact: true }),
     ).toBeVisible();
@@ -173,7 +242,7 @@ test('Resume retains exhausted cumulative budget until the user raises it', asyn
       .fill('Inspect the project.');
     await page.getByRole('button', { name: 'Send request', exact: true }).click();
     await expect(page.getByText(/1 tool was not executed/)).toBeVisible();
-    await page.getByRole('button', { name: 'Resume task', exact: true }).click();
+    await page.getByRole('button', { name: 'Continue task', exact: true }).click();
     await expect(
       page.getByRole('button', { name: 'Cancel agent task', exact: true }),
     ).not.toBeVisible();
@@ -225,7 +294,9 @@ test('changing projects cancels the active task and never applies its pending mu
       await page.evaluate(() => JSON.parse(localStorage.getItem('trace.draft.v1')!).name),
     ).toBe('Untitled project');
     expect(await app.evaluate(() => (globalThis as any).__staleRequests)).toBe(1);
-    await expect(page.getByRole('button', { name: 'Resume task', exact: true })).not.toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Continue task', exact: true }),
+    ).not.toBeVisible();
   } finally {
     await app.close();
   }

@@ -10,7 +10,15 @@ export function illustrationSize(part: Part, rotation = 0) {
         : part.kind === 'breadboard'
           ? { width: 212, height: 870 }
           : part.kind !== 'board'
-            ? { width: 130, height: 130 }
+            ? {
+                width:
+                  part.kind === 'level-shifter'
+                    ? 180
+                    : ['encoder', 'servo', 'potentiometer', 'photointerruptor'].includes(part.kind)
+                      ? 130
+                      : 150,
+                height: Math.max(130, Math.ceil(part.terminals.length / 2) * 26 + 32),
+              }
             : part.id === 'esp32-s3-devkitc1-v11'
               ? { width: 186, height: 560 }
               : { width: 704, height: 310 };

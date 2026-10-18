@@ -14,6 +14,7 @@
     "test:e2e": "playwright test",
     "check": "tsc --noEmit && vitest run",
     "setup:simavr": "node scripts/setup-simavr.mjs",
+    "setup:libraries": "node scripts/setup-libraries.mjs",
     "test:toolchain": "TRACE_LIVE_TOOLCHAIN=1 vitest run tests/toolchain.test.ts",
     "format": "prettier --write src desktop scripts tests *.ts docs AGENTS.md README.md",
     "package": "npm run build && node scripts/package.mjs",

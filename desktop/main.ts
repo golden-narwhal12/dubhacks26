@@ -13,6 +13,7 @@ import {
 } from './credentials';
 import { callProvider, ProviderSchema, ModelSchema } from './providers';
 import { z } from 'zod';
+import { parts } from '../src/parts/catalog';
 import { runToolchain, toolchainCapabilities, configureToolRoot } from './toolchain';
 
 let win: BrowserWindow;
@@ -75,7 +76,28 @@ function createWindow() {
     },
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
+    const sourceHosts = new Set(
+      parts.flatMap((p) =>
+        p.evidence.map((e) => {
+          try {
+            return new URL(e.url).hostname;
+          } catch {
+            return '';
+          }
+        }),
+      ),
+    );
+    let documentedSource = false;
+    try {
+      const target = new URL(url);
+      documentedSource =
+        target.protocol === 'https:' &&
+        !target.username &&
+        !target.password &&
+        sourceHosts.has(target.hostname);
+    } catch {}
     if (
+      documentedSource ||
       /^https:\/\/(docs\.arduino\.cc|www\.kingbrightusa\.com|www\.vishay\.com|documentation\.espressif\.com|docs\.espressif\.com|busboard\.com|www\.busboard\.com|everlightamericas\.com|towerpro\.com\.tw|look\.ams-osram\.com)\//.test(
         url,
       )
@@ -160,7 +182,11 @@ app.whenReady().then(async () => {
           schemaVersion: 1,
           targetBoardId: p.targetBoardId,
           boardSettings: p.boardSettings,
-          dependencies: 'Installed Arduino core libraries only; no hidden source transformations.',
+          dependencies: [
+            'Selected Arduino core libraries',
+            'Servo 1.3.0 when used; install the same official version in Arduino IDE',
+          ],
+          sourcePolicy: 'Exact visible source; no hidden transformations.',
         },
         null,
         2,

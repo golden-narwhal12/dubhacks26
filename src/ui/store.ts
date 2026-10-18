@@ -42,10 +42,21 @@ export interface Message {
   finishedAt?: number;
 }
 export interface Proposal {
+  id?: string;
+  taskId?: string;
   transaction: Transaction;
   origin: 'agent' | 'rule';
 }
 interface State {
+  agentSessionId: string;
+  agentQuestion: {
+    id: string;
+    taskId: string;
+    question: string;
+    options: { label: string; description?: string }[];
+  } | null;
+  questionAnswer: { id: string; answer: string } | null;
+  reviewResult: { id: string; applied: boolean; revision: number } | null;
   agentLimits: AgentLimits;
   agentTrace: Record<string, unknown>[];
   agentResumeAvailable: boolean;
@@ -94,6 +105,7 @@ interface State {
   select: (selection: Selection) => void;
   replaceProject: (p: Project, summary: string) => void;
   reset: (blank?: boolean) => void;
+  newChat: () => void;
   save: () => Promise<void>;
   open: () => Promise<void>;
   run: (simulate?: boolean, origin?: 'human' | 'agent') => Promise<void>;
@@ -121,16 +133,17 @@ function loadSession(): Partial<State> {
     const raw = JSON.parse(localStorage.getItem('trace.session.v1') ?? 'null');
     if (!raw || typeof raw !== 'object') return {};
     return {
-      messages: Array.isArray(raw.messages)
-        ? raw.messages
-            .filter(
-              (m: any) =>
-                ['user', 'assistant', 'activity'].includes(m.role) &&
-                typeof m.id === 'string' &&
-                typeof m.text === 'string',
-            )
-            .slice(-40)
-        : [],
+      messages:
+        (!raw.projectId || raw.projectId === initial.id) && Array.isArray(raw.messages)
+          ? raw.messages
+              .filter(
+                (m: any) =>
+                  ['user', 'assistant', 'activity'].includes(m.role) &&
+                  typeof m.id === 'string' &&
+                  typeof m.text === 'string',
+              )
+              .slice(-40)
+          : [],
       participation: ['request', 'suggest', 'proactive'].includes(raw.participation)
         ? raw.participation
         : 'suggest',
@@ -162,6 +175,10 @@ localStorage.setItem(agentSettingsStorageKey, JSON.stringify({ version: 2, limit
 let lastEditTime = 0;
 let checkTimer: ReturnType<typeof setTimeout> | undefined;
 export const useWorkspace = create<State>((set, get) => ({
+  agentSessionId: crypto.randomUUID(),
+  agentQuestion: null,
+  questionAnswer: null,
+  reviewResult: null,
   agentDraft: '',
   dismissedSuggestions: [],
   agentLimits,
@@ -271,10 +288,37 @@ export const useWorkspace = create<State>((set, get) => ({
   replaceProject: (p, summary) => {
     clearTimeout(checkTimer);
     const s = get();
-    const project = { ...p, revision: s.project.revision + 1 };
+    s.cancelBuild();
+    const project = {
+      ...p,
+      revision: p.id === s.project.id ? Math.max(p.revision, s.project.revision) + 1 : p.revision,
+    };
     set({
+      agentSessionId: crypto.randomUUID(),
+      agentQuestion: null,
+      questionAnswer: null,
+      reviewResult: null,
+      messages: [],
+      agentDraft: '',
+      agentTrace: [],
+      agentResumeAvailable: false,
+      pendingDiagnostic: null,
+      dismissedSuggestions: [],
+      requests: 0,
+      toolCalls: 0,
+      tokens: 0,
+      agentBusy: false,
+      agentStatus: '',
+      workspace: 'prototype',
+      outputOpen: false,
+      building: false,
+      buildRequestId: null,
+      notice: null,
       project,
-      history: record(s.history, s.project, summary),
+      history:
+        summary === 'Reset indicator example'
+          ? record(s.history, s.project, summary)
+          : emptyHistory(),
       diagnostics: validateCircuit(project),
       checksPending: false,
       selection: null,
@@ -289,6 +333,25 @@ export const useWorkspace = create<State>((set, get) => ({
       blank ? blankProject() : exampleProject(),
       blank ? 'New blank project' : 'Reset indicator example',
     ),
+  newChat: () =>
+    set({
+      agentSessionId: crypto.randomUUID(),
+      messages: [],
+      agentDraft: '',
+      agentTrace: [],
+      agentQuestion: null,
+      questionAnswer: null,
+      reviewResult: null,
+      proposal: null,
+      agentResumeAvailable: false,
+      pendingDiagnostic: null,
+      dismissedSuggestions: [],
+      agentBusy: false,
+      agentStatus: '',
+      requests: 0,
+      toolCalls: 0,
+      tokens: 0,
+    }),
   save: async () => {
     try {
       if (window.trace) {
@@ -347,8 +410,9 @@ export const useWorkspace = create<State>((set, get) => ({
     });
     try {
       const result = await window.trace.build({ project: s.project, requestId, simulate });
-      set({ result });
+      if (get().project.id === s.project.id && get().buildRequestId === requestId) set({ result });
     } catch (e) {
+      if (get().project.id !== s.project.id || get().buildRequestId !== requestId) return;
       set({
         result: {
           revision: s.project.revision,
@@ -359,7 +423,7 @@ export const useWorkspace = create<State>((set, get) => ({
         },
       });
     } finally {
-      set({ building: false, buildRequestId: null });
+      if (get().buildRequestId === requestId) set({ building: false, buildRequestId: null });
     }
   },
   cancelBuild: () => {
@@ -380,6 +444,7 @@ useWorkspace.subscribe((s, previous) => {
     localStorage.setItem(
       'trace.session.v1',
       JSON.stringify({
+        projectId: s.project.id,
         messages: s.messages
           .slice(-40)
           .map((m) => ({ ...m, text: m.text.slice(0, 8000), details: undefined })),
@@ -426,6 +491,7 @@ if (window.trace) {
               connections: s.connections,
               model: s.model,
               resumeAvailable: s.agentResumeAvailable,
+              question: s.agentQuestion,
             };
           },
           configure(options: Partial<State>) {

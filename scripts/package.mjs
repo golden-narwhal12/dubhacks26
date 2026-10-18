@@ -104,6 +104,14 @@ if (includeTools) {
   );
   if (archived.status !== 0) throw new Error('Unable to retain simulator corresponding source');
 }
+try {
+  await access('artifacts/tools/libraries/Servo/library.properties');
+  await mkdir(tools, { recursive: true });
+  await cp('artifacts/tools/libraries', join(tools, 'libraries'), { recursive: true });
+  includeTools = true;
+} catch {
+  /* Library setup is optional; a missing dependency remains a clear compile error. */
+}
 const paths = await packager({
   dir: stage,
   name: 'Trace',

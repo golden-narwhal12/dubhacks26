@@ -10,6 +10,7 @@ import { systemInstructions, instructionVersion } from './instructions';
 import { toolSchemaVersion } from '../domain/tools';
 import { validateCircuit } from '../domain/validation';
 import { spaceAgentAdditions } from './agentLayout';
+import { DomainError } from '../domain/project';
 const controller = new ParticipationController();
 export const defaultAgentProfile = {
   id: 'embedded-assistant',
@@ -17,6 +18,9 @@ export const defaultAgentProfile = {
   allowedTools: Object.keys(toolSchemas),
 };
 interface Task {
+  readOnly?: boolean;
+  sessionId: string;
+  waiting?: 'review' | 'question';
   id: string;
   budget: TaskBudget;
   cancelled: boolean;
@@ -40,8 +44,10 @@ interface Task {
   trace: Record<string, unknown>[];
   resumeNotice?: ChatTurn;
   transportRetries?: number;
+  protocolRetries?: number;
   elapsedMs?: number;
   finalReviewAttempts?: number;
+  finalSummaryReviews?: number;
   semanticEdits?: boolean;
   engineeringTask?: boolean;
   reviewSummary?: string;
@@ -56,12 +62,54 @@ function message(m: Omit<Message, 'id'>) {
   useWorkspace.setState((s) => ({ messages: [...s.messages, { ...m, id: uid('msg') }] }));
 }
 function trace(task: Task, event: Record<string, unknown>) {
+  if (task.sessionId !== useWorkspace.getState().agentSessionId) return;
   task.trace.push({ taskId: task.id, time: Date.now(), ...event });
   if (task.trace.length > 1000) task.trace.shift();
   useWorkspace.setState({ agentTrace: [...task.trace] });
 }
 function status(task: Task, text: string) {
+  if (task.sessionId !== useWorkspace.getState().agentSessionId) return;
   message({ role: 'activity', kind: 'status', taskId: task.id, text });
+}
+/** User interaction suspends active task time; it never grants a hardware approval. */
+async function waitForInteraction<T>(
+  task: Task,
+  kind: 'review' | 'question',
+  read: () => T | undefined,
+): Promise<T> {
+  const started = Date.now();
+  task.waiting = kind;
+  useWorkspace.setState({
+    agentStatus: kind === 'review' ? 'Awaiting change review' : 'Awaiting your answer',
+  });
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      let unsubscribe = () => {};
+      const cleanup = () => {
+        unsubscribe();
+        task.abort.signal.removeEventListener('abort', abort);
+      };
+      const abort = () => {
+        cleanup();
+        reject(Error('Task cancelled'));
+      };
+      const check = () => {
+        if (task.cancelled || task.sessionId !== useWorkspace.getState().agentSessionId)
+          return abort();
+        const value = read();
+        if (value !== undefined) {
+          cleanup();
+          resolve(value);
+        }
+      };
+      unsubscribe = useWorkspace.subscribe(check);
+      task.abort.signal.addEventListener('abort', abort, { once: true });
+      check();
+    });
+  } finally {
+    task.budget.started += Date.now() - started;
+    task.waiting = undefined;
+  }
 }
 function modelBuildResult(
   result: RunResult,
@@ -90,6 +138,7 @@ const readOnlyTools = new Set([
 ]);
 const keyOf = (requestId: string, call: ToolCall) => `${requestId}:${call.id}`;
 function updateActivity(task: Task, requestId: string, call: ToolCall, patch: Partial<Message>) {
+  if (task.sessionId !== useWorkspace.getState().agentSessionId) return;
   const key = keyOf(requestId, call);
   useWorkspace.setState((s) => {
     const existing = s.messages.find((m) => m.id === key);
@@ -113,7 +162,13 @@ function updateActivity(task: Task, requestId: string, call: ToolCall, patch: Pa
   });
 }
 async function runTool(call: ToolCall, task: Task) {
-  if (task.diagnostic?.action === 'explain' && !readOnlyTools.has(call.name))
+  if (task.cancelled || task.sessionId !== useWorkspace.getState().agentSessionId)
+    throw Error('Task cancelled');
+  if (
+    (task.diagnostic?.action === 'explain' || task.readOnly) &&
+    !readOnlyTools.has(call.name) &&
+    call.name !== 'ask_user'
+  )
     throw new Error('Explain is read-only; request Fix to authorize local changes.');
   useWorkspace.setState((s) => ({
     agentStatus: `${call.name.replaceAll('_', ' ')}…`,
@@ -124,6 +179,67 @@ async function runTool(call: ToolCall, task: Task) {
   if (!schema) throw new Error(`Unknown tool ${call.name}`);
   schema.parse(call.arguments);
   const s = useWorkspace.getState();
+  if (call.name === 'edit_circuit' || call.name === 'update_firmware') {
+    const commands: import('../domain/project').Command[] = [];
+    const a =
+      call.name === 'edit_circuit'
+        ? toolSchemas.edit_circuit.parse(call.arguments)
+        : toolSchemas.update_firmware.parse(call.arguments);
+    if ('add' in a)
+      for (const item of a.add ?? []) commands.push({ type: 'addComponent', ...item });
+    if ('disconnectWireIds' in a)
+      for (const id of a.disconnectWireIds ?? []) commands.push({ type: 'disconnect', id });
+    if ('removeComponentIds' in a)
+      for (const id of a.removeComponentIds ?? []) commands.push({ type: 'removeComponent', id });
+    if ('removeBindingIds' in a)
+      for (const id of a.removeBindingIds ?? []) commands.push({ type: 'removeBinding', id });
+    if ('removeTelemetryIds' in a)
+      for (const id of a.removeTelemetryIds ?? []) commands.push({ type: 'removeTelemetry', id });
+    if ('moves' in a)
+      for (const item of a.moves ?? []) commands.push({ type: 'moveComponent', ...item });
+    if ('projectName' in a && a.projectName)
+      commands.push({ type: 'renameProject', name: a.projectName });
+    if ('boardSettings' in a && a.boardSettings)
+      commands.push({ type: 'setBoardSettings', settings: a.boardSettings });
+    if ('configure' in a)
+      for (const item of a.configure ?? []) commands.push({ type: 'configureComponent', ...item });
+    if ('connect' in a)
+      for (const wire of a.connect ?? []) commands.push({ type: 'connect', wire });
+    if ('files' in a) for (const file of a.files ?? []) commands.push({ type: 'writeFile', file });
+    if ('bindings' in a)
+      for (const binding of a.bindings ?? []) commands.push({ type: 'setBinding', binding });
+    if ('telemetry' in a)
+      for (const mapping of a.telemetry ?? []) commands.push({ type: 'setTelemetry', mapping });
+    if (a.targetBoardId !== undefined) commands.push({ type: 'setTarget', id: a.targetBoardId });
+    return runTool(
+      {
+        id: call.id,
+        name: 'project_changes',
+        arguments: { expectedRevision: a.expectedRevision, summary: a.summary, commands },
+      },
+      task,
+    );
+  }
+  if (call.name === 'ask_user') {
+    const a = toolSchemas.ask_user.parse(call.arguments),
+      id = uid('question');
+    useWorkspace.setState({ agentQuestion: { id, taskId: task.id, ...a }, questionAnswer: null });
+    try {
+      const answer = await waitForInteraction(task, 'question', () => {
+        const answer = useWorkspace.getState().questionAnswer;
+        return answer?.id === id ? answer.answer : undefined;
+      });
+      message({ role: 'user', taskId: task.id, text: answer });
+      return {
+        question: a.question,
+        answer,
+        notice: 'User answer only; no physical operation has been approved.',
+      };
+    } finally {
+      if (useWorkspace.getState().agentQuestion?.id === id)
+        useWorkspace.setState({ agentQuestion: null, questionAnswer: null });
+    }
+  }
   if (call.name === 'inspect_hardware') {
     const snapshot = await window.trace!.hardware.snapshot();
     return {
@@ -303,25 +419,58 @@ async function runTool(call: ToolCall, task: Task) {
           'The selected diagnostic is resolved or gone. Do not apply unrelated repairs; report its current state.',
       };
     const checked = previewTransaction(s.project, call.arguments);
+    if (
+      checked.transaction.commands.some(
+        (c) =>
+          c.type === 'setBoardSettings' &&
+          c.settings.esp32?.confirmed &&
+          (!s.project.boardSettings.esp32?.confirmed ||
+            stableKey(c.settings) !== stableKey(s.project.boardSettings)),
+      )
+    )
+      throw Error(
+        'Only the user can confirm a physical ESP32 flash/PSRAM variant in Board settings. Propose explicit settings with confirmed:false; a question answer or code edit cannot grant hardware approval.',
+      );
+    if (task.diagnostic?.action === 'fix') {
+      const beforeIssues = new Set(validateCircuit(s.project).map((d) => d.id));
+      const disconnected = validateCircuit(checked.next).filter(
+        (d) =>
+          !beforeIssues.has(d.id) &&
+          d.severity === 'error' &&
+          [
+            'part.supply-documentation',
+            'encoder.data-path',
+            'servo.control-path',
+            'part.common-reference',
+            'binding.connectivity',
+          ].includes(d.rule),
+      );
+      if (disconnected.length)
+        throw Error(
+          `This repair leaves required functionality disconnected: ${disconnected.map((d) => d.title).join('; ')}. Add the supporting supply/interface and reconnect the complete path in the same batch. Removing required wires is not a repair.`,
+        );
+    }
     const spaced = spaceAgentAdditions(s.project, checked.next, checked.transaction);
     const preview = spaced.adjusted.length
       ? previewTransaction(s.project, spaced.transaction)
       : checked;
     const placementAdjustments = spaced.adjusted;
-    if (
-      preview.transaction.commands.some(
-        (c) =>
-          !['moveComponent', 'renameProject'].includes(c.type) &&
-          !(c.type === 'configureComponent' && !c.config),
-      )
-    )
-      task.semanticEdits = true;
+    if (circuitKey(preview.next) !== circuitKey(s.project)) task.semanticEdits = true;
     if (s.policy === 'preview') {
       if (s.proposal)
         throw new Error('A proposal is pending; finish or dismiss it before another proposal');
       task.reviewSummary = preview.transaction.summary;
       task.reviewBaseRevision = s.project.revision;
-      useWorkspace.setState({ proposal: { transaction: preview.transaction, origin: 'agent' } });
+      const proposalId = uid('proposal');
+      useWorkspace.setState({
+        proposal: {
+          id: proposalId,
+          taskId: task.id,
+          transaction: preview.transaction,
+          origin: 'agent',
+        },
+        reviewResult: null,
+      });
       message({
         role: 'activity',
         kind: 'change',
@@ -329,11 +478,50 @@ async function runTool(call: ToolCall, task: Task) {
         text: `Ready for review: ${preview.transaction.summary}`,
         details: JSON.stringify(preview.summary, null, 2),
       });
+      const decision = await waitForInteraction(task, 'review', () => {
+        const state = useWorkspace.getState();
+        if (state.reviewResult?.id === proposalId)
+          return state.reviewResult.applied ? 'applied' : 'declined';
+        if (
+          state.project.revision !== preview.transaction.expectedRevision &&
+          state.changes.some(
+            (c) =>
+              c.revision === state.project.revision &&
+              c.origin === 'agent' &&
+              c.summary === preview.transaction.summary,
+          )
+        )
+          return 'applied';
+        if (
+          state.project.revision !== preview.transaction.expectedRevision &&
+          state.proposal?.id === proposalId
+        )
+          return 'stale';
+        if (!state.proposal) return 'declined';
+      });
+      if (useWorkspace.getState().proposal?.id === proposalId)
+        useWorkspace.setState({ proposal: null });
+      if (decision === 'stale')
+        throw Error(
+          'Project changed during review. Inspect the current revision and prepare an updated batch; no proposal was applied.',
+        );
+      if (decision === 'declined')
+        return {
+          status: 'declined',
+          revision: useWorkspace.getState().project.revision,
+          notice:
+            'User declined this batch. Preserve that decision; do not repeat the same proposal. Ask a focused question only if needed.',
+        };
+      task.lastAppliedRevision = useWorkspace.getState().project.revision;
+      task.changes.push(preview.transaction.summary);
       return {
-        status: 'proposal_pending',
-        placementAdjustments,
+        status: 'applied',
+        revision: task.lastAppliedRevision,
         ...preview.summary,
-        notice: 'User must apply. Do not claim the project changed.',
+        placementAdjustments,
+        diagnostics: validateCircuit(useWorkspace.getState().project).filter(
+          (d) => d.severity === 'error' || d.severity === 'warning',
+        ),
       };
     }
     if (task.cancelled) throw new Error('Task cancelled');
@@ -394,6 +582,11 @@ async function runTool(call: ToolCall, task: Task) {
     useWorkspace.setState({ building: true, buildRequestId: id, buildOrigin: 'agent' });
     try {
       const snapshot = await window.trace!.hardware.verify(s.project, id);
+      if (task.cancelled || task.sessionId !== useWorkspace.getState().agentSessionId)
+        return {
+          status: 'discarded',
+          notice: 'Verification belonged to the previous task/session.',
+        };
       useHardware.setState({ snapshot });
       const v = snapshot.verification;
       if (v) useWorkspace.setState({ result: v.result });
@@ -406,7 +599,8 @@ async function runTool(call: ToolCall, task: Task) {
         : { error: 'Verification changed during compilation; rerun on current project' };
     } finally {
       task.hardwareRequestId = null;
-      useWorkspace.setState({ building: false, buildRequestId: null });
+      if (useWorkspace.getState().buildRequestId === id)
+        useWorkspace.setState({ building: false, buildRequestId: null });
     }
   }
   if (call.name === 'run_build') {
@@ -429,7 +623,9 @@ async function runTool(call: ToolCall, task: Task) {
 }
 export async function requestAgent(goal: string, diagnostic?: Task['diagnostic']) {
   const s = useWorkspace.getState();
-  if (current) return;
+  if (current && !current.cancelled) return;
+  current = null;
+  paused = null;
   if (!window.trace) {
     message({ role: 'activity', kind: 'status', text: 'AI connections require the desktop app.' });
     return;
@@ -448,6 +644,13 @@ export async function requestAgent(goal: string, diagnostic?: Task['diagnostic']
   paused = null;
   useWorkspace.setState({ agentResumeAvailable: false, pendingDiagnostic: null });
   const task: Task = {
+    readOnly:
+      diagnostic?.action === 'explain' ||
+      (/^(?:please\s+)?(?:explain|describe|inspect|show|tell|why|how)\b/i.test(goal) &&
+        !/\b(?:then|and)\s+(?:fix|build|create|add|edit|repair|label|rename|configure|set|connect|wire|update|write|remove|delete)\b/i.test(
+          goal,
+        )),
+    sessionId: s.agentSessionId,
     id: crypto.randomUUID(),
     projectId: s.project.id,
     budget: new TaskBudget(s.agentLimits),
@@ -459,8 +662,9 @@ export async function requestAgent(goal: string, diagnostic?: Task['diagnostic']
     deniedHardware: new Set(),
     goal,
     engineeringTask:
-      /\b(build|create|repair|fix|make|implement|continue|extend)\b/i.test(goal) &&
-      !/\b(rename|label|move|rotate|layout)\b/i.test(goal),
+      !/^(?:please\s+)?(?:explain|describe|inspect|show|tell|why|how)\b/i.test(goal) &&
+      /\b(build|create|repair|fix|make|implement|continue|extend|add|connect|wire)\b/i.test(goal) &&
+      !/^(?:please\s+)?(?:rename|label|move|rotate)\b/i.test(goal),
     provider: s.provider,
     model: s.model,
     messages: [],
@@ -588,10 +792,14 @@ async function executeTask(task: Task) {
     toolSchemaVersion,
     limits: task.budget.limits,
   });
-  const timeout = setTimeout(
-    () => cancelAgent('Task time limit reached'),
-    Math.max(1, task.budget.limits.durationMs - (Date.now() - task.budget.started)),
-  );
+  const timeout = setInterval(() => {
+    if (
+      current === task &&
+      !task.waiting &&
+      Date.now() - task.budget.started >= task.budget.limits.durationMs
+    )
+      cancelAgent('Task time limit reached');
+  }, 500);
   let cause = '',
     finished = false;
   try {
@@ -636,7 +844,7 @@ async function executeTask(task: Task) {
           } catch (e) {
             response = {
               error: {
-                code: 'TOOL_REJECTED',
+                code: e instanceof DomainError ? e.code : 'TOOL_REJECTED',
                 message:
                   e instanceof ZodError
                     ? e.issues
@@ -650,6 +858,32 @@ async function executeTask(task: Task) {
                   'Inspect current state/arguments and correct the request; do not repeat unchanged failures.',
               },
               revision: useWorkspace.getState().project.revision,
+              ...(call.name === 'project_changes' && Array.isArray(call.arguments.commands)
+                ? {
+                    existingConnections: useWorkspace
+                      .getState()
+                      .project.wires.filter((w) =>
+                        (call.arguments.commands as any[]).some(
+                          (c) =>
+                            c.type === 'connect' &&
+                            (c.wire?.id === w.id ||
+                              (c.wire?.from &&
+                                c.wire?.to &&
+                                stableKey(
+                                  [c.wire?.from, c.wire?.to].sort((a, b) =>
+                                    stableKey(a).localeCompare(stableKey(b)),
+                                  ),
+                                ) ===
+                                  stableKey(
+                                    [w.from, w.to].sort((a, b) =>
+                                      stableKey(a).localeCompare(stableKey(b)),
+                                    ),
+                                  ))),
+                        ),
+                      )
+                      .slice(0, 12),
+                  }
+                : {}),
             };
             updateActivity(task, requestId, call, {
               status: 'failed',
@@ -703,7 +937,12 @@ async function executeTask(task: Task) {
       let stream = '',
         added = false;
       const unlisten = window.trace!.onProviderText((e) => {
-        if (e.requestId !== requestId || task.cancelled) return;
+        if (
+          e.requestId !== requestId ||
+          task.cancelled ||
+          task.sessionId !== useWorkspace.getState().agentSessionId
+        )
+          return;
         stream += e.text;
         useWorkspace.setState((v) => ({
           messages: added
@@ -735,7 +974,9 @@ async function executeTask(task: Task) {
         trace(task, { event: 'provider-error', requestId, cause: reason, usageUnavailable: true });
         if (
           !task.cancelled &&
-          /HTTP 503|HTTP 502|network request failed or timed out/.test(reason) &&
+          /HTTP 503|HTTP 502|network request failed or timed out|MALFORMED_FUNCTION_CALL/.test(
+            reason,
+          ) &&
           (task.transportRetries ?? 0) < 2
         ) {
           task.transportRetries = (task.transportRetries ?? 0) + 1;
@@ -747,6 +988,11 @@ async function executeTask(task: Task) {
             task,
             `Provider interrupted; retrying the same model (${task.transportRetries}/2). No tools from that response executed.`,
           );
+          if (/MALFORMED_FUNCTION_CALL/.test(reason))
+            task.messages.push({
+              role: 'user',
+              text: 'The previous response had a malformed tool call and none of its tools executed. Retry with a smaller valid batch using exact schema fields. Wire colors: mint,copper,blue,red,gray; omit color to use mint. Reuse existing state; do not replay completed changes.',
+            });
           await new Promise<void>((resolve) => {
             const timer = setTimeout(resolve, 1000 * task.transportRetries!);
             task.abort.signal.addEventListener(
@@ -766,6 +1012,7 @@ async function executeTask(task: Task) {
         task.requestId = null;
       }
       if (task.cancelled) break;
+      task.transportRetries = 0;
       if (task.budget.usage(result.usage.input, result.usage.output, requestId, result.usage.total))
         useWorkspace.setState((v) => ({
           tokens:
@@ -780,18 +1027,78 @@ async function executeTask(task: Task) {
         calls: result.calls.map((c) => ({
           id: c.id,
           name: c.name,
-          arguments:
-            c.name === 'project_changes'
-              ? {
-                  expectedRevision: c.arguments.expectedRevision,
-                  commandCount: (c.arguments.commands as any[])?.length,
-                }
-              : c.arguments,
+          arguments: ['project_changes', 'edit_circuit', 'update_firmware'].includes(c.name)
+            ? {
+                expectedRevision: c.arguments.expectedRevision,
+                commandCount: (c.arguments.commands as any[])?.length,
+                addedComponents: (c.arguments.add as any[])?.length,
+                files: (c.arguments.files as any[])?.map((f) => ({
+                  path: f.path,
+                  characters: typeof f.content === 'string' ? f.content.length : 0,
+                })),
+              }
+            : c.arguments,
         })),
       });
+      if (result.recovery) {
+        if (added)
+          useWorkspace.setState((v) => ({ messages: v.messages.filter((m) => m.id !== streamId) }));
+        task.protocolRetries = (task.protocolRetries ?? 0) + 1;
+        if (task.protocolRetries > 2)
+          throw Error(
+            'The provider repeatedly generated invalid tool calls. No invalid response tools executed; try a smaller request or another configured model.',
+          );
+        task.messages.push({
+          role: 'user',
+          text: JSON.stringify({
+            event: 'invalid-tool-response',
+            message: result.recovery.message,
+            instruction:
+              'Retry the next step with one smaller valid project_changes batch using exact schema field names and actual stable IDs. Reuse applied state; never replay earlier mutations. Use default mint wire color if uncertain.',
+          }),
+        });
+        trace(task, { event: 'protocol-recovery', requestId, attempt: task.protocolRetries });
+        continue;
+      }
+      task.protocolRetries = 0;
       const physicalFacts = validateCircuit(useWorkspace.getState().project).filter(
         (d) => d.requiresPhysicalFacts || d.requiresAgentResolution,
       );
+      const live = useWorkspace.getState();
+      const localErrors = validateCircuit(live.project).filter(
+        (d) => d.severity === 'error' || (d.requiresAgentResolution && !d.requiresPhysicalFacts),
+      );
+      const needsBuild =
+        !!live.project.targetBoardId &&
+        !!task.semanticEdits &&
+        (!live.result?.success || live.result.buildKey !== buildKey(live.project));
+      if (
+        !result.calls.length &&
+        task.diagnostic?.action !== 'explain' &&
+        (task.semanticEdits || task.engineeringTask) &&
+        (localErrors.length ||
+          needsBuild ||
+          (!task.changes.length && !result.text.includes('?'))) &&
+        (task.finalReviewAttempts ?? 0) < 6
+      ) {
+        task.finalReviewAttempts = (task.finalReviewAttempts ?? 0) + 1;
+        if (added)
+          useWorkspace.setState((v) => ({ messages: v.messages.filter((m) => m.id !== streamId) }));
+        task.messages.push({ role: 'assistant', text: result.text, native: result.native });
+        task.messages.push({
+          role: 'user',
+          text: JSON.stringify({
+            event: 'implementation-review',
+            goal: task.goal,
+            diagnostics: localErrors,
+            needsCurrentCompile: needsBuild,
+            changesApplied: task.changes.length,
+            instruction:
+              'Continue implementing the requested functional design. Add the missing supporting hardware in an atomic batch; never clear an issue by leaving a required supply/control/data path disconnected. Fix applicable local diagnostics and compile current visible source. Use ask_user for necessary missing facts or concrete unsupported scope. Do not repeat an unchanged failed strategy or substitute a wiring essay for edits.',
+          }),
+        });
+        continue;
+      }
       if (
         !result.calls.length &&
         task.diagnostic?.action !== 'explain' &&
@@ -839,6 +1146,34 @@ async function executeTask(task: Task) {
           }),
         });
         status(task, 'Reviewing unresolved diagnostics. Compilation does not verify the assembly.');
+        continue;
+      }
+      if (
+        !result.calls.length &&
+        !task.readOnly &&
+        (task.semanticEdits || task.engineeringTask) &&
+        !localErrors.length &&
+        !needsBuild &&
+        !task.finalSummaryReviews
+      ) {
+        task.finalSummaryReviews = 1;
+        if (added)
+          useWorkspace.setState((v) => ({ messages: v.messages.filter((m) => m.id !== streamId) }));
+        task.messages.push({ role: 'assistant', text: result.text, native: result.native });
+        task.messages.push({
+          role: 'user',
+          text: JSON.stringify({
+            event: 'final-task-summary',
+            goal: task.goal,
+            project: projectSummary(live.project),
+            checks: validateCircuit(live.project)
+              .filter((d) => d.severity === 'error' || d.severity === 'warning')
+              .map(({ title, detail }) => ({ title, detail })),
+            compile: live.result ? modelBuildResult(live.result, live.project, 1200) : undefined,
+            instruction:
+              'Finish the ENTIRE requested task, not only the last corrected compiler/binding error. If implementation is incomplete, use tools to complete it. Otherwise give a short final summary of actual project and verification. Include relevant external supply/interface requirements and mechanical coupling/alignment/zero/direction calibration when a magnetic encoder is used to observe motion. Never present a commanded actuator value as measured feedback. Keep code/wiring details in the editor, not a chat essay.',
+          }),
+        });
         continue;
       }
       if (result.text) {
@@ -902,6 +1237,7 @@ async function executeTask(task: Task) {
     clearTimeout(timeout);
     task.elapsedMs = Date.now() - task.budget.started;
     if (current === task) current = null;
+    if (task.sessionId !== useWorkspace.getState().agentSessionId) return;
     const s = useWorkspace.getState(),
       d = task.diagnostic
         ? validateCircuit(s.project).find((d) => d.id === task.diagnostic!.id)
@@ -918,17 +1254,18 @@ async function executeTask(task: Task) {
     const unresolvedFacts =
       task.semanticEdits || task.engineeringTask
         ? validateCircuit(s.project).filter(
-            (d) => d.requiresPhysicalFacts || d.requiresAgentResolution,
+            (d) => d.severity === 'error' || d.requiresPhysicalFacts || d.requiresAgentResolution,
           )
         : [];
     const pending = task.pending.length
       ? `${task.pending.length} tool${task.pending.length === 1 ? ' was' : 's were'} not executed.`
       : '';
-    const resumable = !finished && (!task.projectId || task.projectId === s.project.id);
+    const resumable =
+      !finished && !task.cancelled && (!task.projectId || task.projectId === s.project.id);
     if (resumable) paused = task;
     status(
       task,
-      `${finished ? (unresolvedFacts.some((d) => d.requiresPhysicalFacts) ? 'Awaiting physical facts' : unresolvedFacts.length ? 'Needs review' : 'Task ended') : task.cancelled ? 'Stopped' : 'Paused'}${cause ? `: ${cause}` : ''}. ${changes} ${build}${task.diagnostic ? ` Target issue ${d ? 'remains; ' + d.title : 'is no longer present'}.` : ''}${unresolvedFacts.length ? ' Unresolved: ' + unresolvedFacts.map((d) => d.title).join('; ') + '.' : ''}${pending ? ' ' + pending : ''}${resumable ? ' Adjust limits if needed, then Resume task.' : ''}`,
+      `${finished ? (unresolvedFacts.some((d) => d.requiresPhysicalFacts) ? 'Physical checks remain' : unresolvedFacts.length ? 'Needs review' : 'Task complete') : task.cancelled ? 'Stopped' : 'Stopped'}${cause ? `: ${cause}` : ''}. ${changes} ${build}${task.diagnostic ? ` Target issue ${d ? 'remains; ' + d.title : 'is no longer present'}.` : ''}${unresolvedFacts.length ? ' Unresolved: ' + unresolvedFacts.map((d) => d.title).join('; ') + '.' : ''}${pending ? ' ' + pending : ''}${resumable && /limit|threshold/.test(cause) ? ' Increase the relevant limit in Settings to continue.' : ''}`,
     );
     trace(task, {
       event: 'segment-end',
@@ -958,6 +1295,10 @@ export function cancelAgent(reason = 'Task cancelled') {
   if (task.hardwareRequestId)
     void window.trace?.hardware.cancel(task.hardwareRequestId).catch(() => undefined);
   useWorkspace.getState().cancelBuild();
+  const state = useWorkspace.getState();
+  if (state.proposal?.taskId === task.id) useWorkspace.setState({ proposal: null });
+  if (state.agentQuestion?.taskId === task.id)
+    useWorkspace.setState({ agentQuestion: null, questionAnswer: null });
   status(task, reason);
 }
 window.addEventListener('trace:agent-resume', () => void resumeAgent());
@@ -989,7 +1330,12 @@ window.addEventListener('trace:dismiss-issue', (e) => {
     current.pendingInvestigation = null;
 });
 useWorkspace.subscribe((s, previous) => {
-  if (current && !current.cancelled && s.project.id !== previous.project.id) {
+  if (s.agentSessionId !== previous.agentSessionId) paused = null;
+  if (
+    current &&
+    !current.cancelled &&
+    (s.project.id !== previous.project.id || s.agentSessionId !== previous.agentSessionId)
+  ) {
     cancelAgent('Project changed; this task stopped without applying pending work.');
     return;
   }

@@ -98,15 +98,23 @@ for (const testCase of cases)
           window.traceEvaluation.snapshot().messages.length > 0,
       );
       await page.waitForFunction(
-        () => !window.traceEvaluation.snapshot().busy,
+        () =>
+          !window.traceEvaluation.snapshot().busy || !!window.traceEvaluation.snapshot().question,
         {},
         { timeout: limits.durationMs + 30000 },
       );
       const snapshot = await page.evaluate(() => window.traceEvaluation.snapshot());
-      const text = snapshot.messages
-        .filter((m) => m.role === 'assistant')
-        .map((m) => m.text)
-        .join('\n');
+      const text =
+        snapshot.messages
+          .filter((m) => m.role === 'assistant')
+          .map((m) => m.text)
+          .join('\n') +
+        (snapshot.question
+          ? '\n' +
+            snapshot.question.question +
+            '\n' +
+            snapshot.question.options.map((o) => o.label).join('\n')
+          : '');
       const oracle = evaluateArtifacts(testCase, snapshot.project, snapshot.result, text);
       const stop = snapshot.messages.filter((m) => m.kind === 'status').at(-1)?.text;
       const providerError = snapshot.trace.find((e) => e.event === 'segment-end' && e.cause);
@@ -129,6 +137,7 @@ for (const testCase of cases)
         cause: providerError?.cause ?? stop,
         trace: snapshot.trace,
         answer: text.slice(-4000),
+        question: snapshot.question,
         compile: snapshot.result
           ? {
               success: snapshot.result.success,

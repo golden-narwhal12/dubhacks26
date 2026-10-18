@@ -17,6 +17,7 @@ export function stableKey(value: unknown) {
 export function buildKey(p: Project) {
   const board = p.components.find((c) => c.id === p.targetBoardId);
   return stableKey({
+    supportedLibrarySet: 'Servo@1.3.0',
     part: board ? [board.partId, board.partVersion] : null,
     settings: p.boardSettings,
     files: [...p.files]

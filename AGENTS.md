@@ -11,6 +11,7 @@ Trace is a local macOS circuit and firmware workbench. Read [product](docs/produ
 - `npm start` launches the built desktop application.
 - `npm run check` typechecks and runs focused domain/service tests.
 - `npm run test:e2e` exercises the actual Electron application after building.
+- `npm run setup:libraries` installs checksum-pinned official Servo 1.3.0 into the fixed confined tool root.
 - `npm run setup:simavr` builds the pinned external Mega simulator locally.
 - `npm run test:toolchain` verifies installed Mega/ESP32 compilation, MCU execution and confinement.
 - `npm run package` creates a local macOS app; `npm run test:package` verifies it from another working directory.
@@ -25,7 +26,7 @@ Trace is a local macOS circuit and firmware workbench. Read [product](docs/produ
 - Terminal IDs belong to versioned part packages. Artwork and labels never establish electrical identity.
 - Evidence, recommended conditions, absolute maxima, and unknowns must remain distinct. Never report universal electrical correctness.
 - Keep credentials in main-process encrypted local storage; never send stored keys to the renderer, projects, model context, logs, or Git.
-- In-app system instructions live in `src/services/instructions.ts`; update instruction/tool versions for changed contracts and retain evaluation provenance. Task resume preserves cumulative budgets and must not replay completed effects.
+- In-app system instructions live in `src/services/instructions.ts`; update instruction/tool versions for changed contracts and retain evaluation provenance. Approved local batches/questions continue within the same task and budget. Only explicit budget/error recovery needs continuation; completed effects never replay.
 - No inference for selections, typing, movement, layout, checks, or suggestion presentation. Model calls require an eligible task and enforced budgets.
 - No arbitrary model-generated shell commands. Build processes use fixed executables, validated arguments, bounded output, timeout, and cancellation.
 - Compiler/simulator children must retain macOS file/network confinement; never silently fall back to unrestricted execution. Keep allowed roots fixed to required system/tool/package data and scratch. No arbitrary imported/user library directories.

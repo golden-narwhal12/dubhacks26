@@ -164,10 +164,21 @@ body,
   align-items: baseline;
   color: var(--muted);
   white-space: nowrap;
+  max-width: 240px;
+  background: var(--canvas);
+  line-height: 16px;
+}
+.part-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .part-name strong {
   font-size: 12px;
   color: var(--text);
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 .part-name span {
   font-size: 11px;
@@ -1113,11 +1124,11 @@ body,
 }
 .part-issue {
   position: absolute;
-  right: -20px;
-  top: -30px;
-  width: 22px;
-  height: 22px;
-  padding: 1px;
+  right: -29px;
+  top: -34px;
+  width: 28px;
+  height: 28px;
+  padding: 2px;
   background: var(--canvas);
   border-radius: 50%;
   color: var(--danger);
@@ -1547,6 +1558,22 @@ body,
 }
 .connection-issue-popover .part-issue-message {
   position: static;
+}
+.canvas-popover[popover] {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(320px, calc(100vw - 24px));
+  min-width: 0;
+  max-width: min(320px, calc(100vw - 24px));
+  max-height: min(420px, calc(100vh - 24px));
+  overflow: auto;
+  color: var(--text);
+  box-shadow: 0 8px 30px var(--shadow);
+}
+.canvas-popover .diagnostic-agent-menu {
+  position: static;
+  margin-top: 4px;
 }
 .limit-fields {
   display: grid;

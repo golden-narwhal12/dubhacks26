@@ -18,6 +18,10 @@ export const ComponentSchema = z
         forwardVoltageV: z.number().finite().positive().max(20).optional(),
         maxCurrentMa: z.number().finite().positive().max(1000).optional(),
         potentiometerOhms: z.number().finite().positive().max(1e9).optional(),
+        supplyVoltageV: z.number().finite().positive().max(1000).optional(),
+        supplyCurrentMa: z.number().finite().positive().max(1e6).optional(),
+        capacitanceFarads: z.number().finite().positive().max(100).optional(),
+        inductanceHenries: z.number().finite().positive().max(1000).optional(),
       })
       .strict()
       .default({}),
@@ -36,7 +40,22 @@ export const WireSchema = z
     id: Id,
     from: EndpointSchema,
     to: EndpointSchema,
-    color: z.enum(['mint', 'copper', 'blue', 'red', 'gray']).default('mint'),
+    color: z
+      .enum([
+        'mint',
+        'copper',
+        'blue',
+        'red',
+        'gray',
+        'green',
+        'yellow',
+        'orange',
+        'black',
+        'white',
+        'brown',
+        'purple',
+      ])
+      .default('mint'),
   })
   .strict();
 export const FileSchema = z
@@ -140,6 +159,7 @@ export interface Terminal {
   requirements?: string;
 }
 export interface Part {
+  operatingSupply?: { terminalId: string; minV: number; maxV: number; conditions: string };
   id: string;
   version: 1;
   name: string;
@@ -154,7 +174,20 @@ export interface Part {
     | 'encoder'
     | 'servo'
     | 'potentiometer'
-    | 'photointerruptor';
+    | 'photointerruptor'
+    | 'supply'
+    | 'level-shifter'
+    | 'capacitor'
+    | 'diode'
+    | 'transistor'
+    | 'switch'
+    | 'connector'
+    | 'sensor'
+    | 'display'
+    | 'buzzer'
+    | 'driver'
+    | 'logic'
+    | 'motor';
   category?:
     'Boards' | 'Prototyping' | 'Passive Components' | 'Indicators' | 'Sensors' | 'Actuators';
   description: string;

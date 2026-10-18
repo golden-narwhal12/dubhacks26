@@ -5,6 +5,9 @@ async function project(page: Page) {
   return page.evaluate(() => JSON.parse(localStorage.getItem('trace.draft.v1')!));
 }
 async function dragPin(page: Page, from: string, to: string) {
+  // Wait for the actual hit targets to settle after Dockview/Monaco's initial layout.
+  await page.getByRole('button', { name: to, exact: true }).hover();
+  await page.getByRole('button', { name: from, exact: true }).hover();
   const a = await page.getByRole('button', { name: from, exact: true }).boundingBox(),
     b = await page.getByRole('button', { name: to, exact: true }).boundingBox();
   expect(a).not.toBeNull();
@@ -51,7 +54,7 @@ test('manual wiring → mismatch → reviewed fix → real MCU output, save/reop
     await expect(page.getByText('LED_PIN does not match the wiring')).toBeVisible();
     await page.getByRole('button', { name: 'Preview fix', exact: true }).click();
     await expect(page.getByText('Bind LED_PIN ↔ U1.12')).toBeVisible();
-    await page.getByRole('button', { name: 'Apply', exact: true }).click();
+    await page.getByRole('button', { name: 'Apply and continue', exact: true }).click();
     await expect.poll(async () => (await project(page)).files[0].content).toContain('LED_PIN = 12');
     await menuAction(app, 'Undo Project Change');
     await expect.poll(async () => (await project(page)).files[0].content).toContain('LED_PIN = 13');
@@ -233,18 +236,19 @@ test('Gemini tool loop with deterministic protocol fixtures, visible proposal an
       .fill('Inspect the real shared circuit and label the LED.');
     await page.getByRole('button', { name: 'Send request', exact: true }).click();
     await expect(page.getByText('Proposed change', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Resume task', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Continue task', exact: true }),
+    ).not.toBeVisible();
     expect((await app.evaluate(() => (globalThis as any).__fixtureRequests)).length).toBe(2);
     expect((await project(page)).components.find((c: any) => c.id === 'led').config.label).toBe(
       'Status indicator',
     );
-    await page.getByRole('button', { name: 'Apply', exact: true }).click();
+    await page.getByRole('button', { name: 'Apply and continue', exact: true }).click();
     await expect
       .poll(
         async () => (await project(page)).components.find((c: any) => c.id === 'led').config.label,
       )
       .toBe('Agent updated indicator');
-    await page.getByRole('button', { name: 'Resume task', exact: true }).click();
     await expect(page.getByText('The component label is applied. led')).toBeVisible();
     const requests = await app.evaluate(() => (globalThis as any).__fixtureRequests);
     expect(requests).toHaveLength(3);

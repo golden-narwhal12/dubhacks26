@@ -1,5 +1,6 @@
 import type { Message } from './store';
-import { ArrowUp, Square, Settings2, Sparkles, Check, X } from 'lucide-react';
+import { ArrowUp, Square, Settings2, Sparkles, Check, X, MessageSquarePlus } from 'lucide-react';
+import { AgentQuestion } from './AgentQuestion';
 import { useWorkspace, uid } from './store';
 import { Badge, IconButton } from './primitives';
 import { providerDefaults } from '../services/bridge';
@@ -156,6 +157,9 @@ export function Agent() {
           {s.model}
         </button>
         <span className="spacer" />
+        <IconButton title="New chat" onClick={() => s.newChat()}>
+          <MessageSquarePlus />
+        </IconButton>
         <IconButton
           title="AI connections and participation"
           onClick={() => useWorkspace.setState({ settings: true })}
@@ -228,10 +232,11 @@ export function Agent() {
       {s.agentResumeAvailable && !s.agentBusy && (
         <div className="agent-resume">
           <button onClick={() => window.dispatchEvent(new Event('trace:agent-resume'))}>
-            Resume task
+            Continue task
           </button>
         </div>
       )}
+      {s.agentQuestion && <AgentQuestion key={s.agentQuestion.id} />}
       {s.proposal && (
         <div className="proposal">
           <div className="row">
@@ -262,6 +267,13 @@ export function Agent() {
                 ) {
                   useWorkspace.setState({
                     proposal: null,
+                    reviewResult: s.proposal!.id
+                      ? {
+                          id: s.proposal!.id,
+                          applied: true,
+                          revision: useWorkspace.getState().project.revision,
+                        }
+                      : null,
                     messages: [
                       ...s.messages,
                       {
@@ -276,9 +288,18 @@ export function Agent() {
                 }
               }}
             >
-              <Check size={13} /> Apply
+              <Check size={13} /> Apply and continue
             </button>
-            <button onClick={() => useWorkspace.setState({ proposal: null })}>
+            <button
+              onClick={() =>
+                useWorkspace.setState({
+                  proposal: null,
+                  reviewResult: s.proposal?.id
+                    ? { id: s.proposal.id, applied: false, revision: s.project.revision }
+                    : null,
+                })
+              }
+            >
               <X size={13} /> Dismiss
             </button>
           </div>
@@ -319,6 +340,14 @@ export function Agent() {
         onSubmit={(e) => {
           e.preventDefault();
           if (!prompt.trim()) return;
+          if (s.agentQuestion) {
+            useWorkspace.setState({
+              questionAnswer: { id: s.agentQuestion.id, answer: prompt.trim() },
+            });
+            setPrompt('');
+            return;
+          }
+          if (s.agentBusy) return;
           if (!configured) {
             useWorkspace.setState({ settings: true });
             return;

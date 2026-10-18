@@ -94,6 +94,10 @@ const encoderServo = () => {
   p.targetBoardId = 'board';
   part(p, 'encoder', 'as5600-module-photo', 'U2');
   part(p, 'servo', 'sg90-generic', 'M1');
+  part(p, 'supply', 'external-dc-supply', 'PS1');
+  p.components.find((c) => c.id === 'supply')!.config.supplyVoltageV = 5;
+  wire(p, 'supply:positive', 'servo:power');
+  wire(p, 'supply:negative', 'board:gnd1');
   wire(p, 'encoder:vcc', 'board:3v3');
   wire(p, 'encoder:gnd', 'board:gnd1');
   wire(p, 'encoder:out', 'board:a0');
@@ -126,7 +130,7 @@ const encoderServo = () => {
   return p;
 };
 const encoderReport =
-  'Analog OUT behavior and scale must be confirmed/calibrated for this 3.3 V module. Use an external power supply sized for the actual servo; its power terminal is intentionally pending that supply. Align and couple the magnet to the servo shaft; calibrate zero and direction. Commanded position is not measured feedback.';
+  'Analog OUT behavior and scale must be confirmed/calibrated for this 3.3 V module. The documented external power supply must be sized for the actual servo load. Align and couple the magnet to the servo shaft; calibrate zero and direction. Commanded position is not measured feedback.';
 
 describe('evaluation seeds and artifact oracles', () => {
   it('seeds cover the ladder and are independently valid and reproducible', () => {

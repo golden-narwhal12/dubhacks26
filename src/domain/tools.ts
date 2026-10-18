@@ -1,14 +1,93 @@
 import { z } from 'zod';
-import { Id, TerminalId } from './schema';
+import {
+  Id,
+  TerminalId,
+  ComponentSchema,
+  PlacementSchema,
+  WireSchema,
+  FileSchema,
+  BindingSchema,
+  TelemetryMappingSchema,
+  BoardSettingsSchema,
+} from './schema';
 import { HardwareActionSchema, ObserveSchema } from '../services/hardware';
 import { TransactionSchema, transact } from './project';
 import { deriveNets } from './topology';
 import { circuitKey } from './semantics';
 import { validateCircuit } from './validation';
 import { searchParts, partById } from '../parts/catalog';
+import { referenceFacts } from '../parts/referenceFacts';
 import type { Project } from './schema';
 
 export const toolSchemas = {
+  edit_circuit: z
+    .object({
+      expectedRevision: z.number().int().nonnegative(),
+      summary: z.string().min(1).max(240),
+      add: z
+        .array(z.object({ component: ComponentSchema, placement: PlacementSchema }).strict())
+        .max(30)
+        .optional(),
+      connect: z.array(WireSchema).max(80).optional(),
+      disconnectWireIds: z.array(Id).max(80).optional(),
+      removeComponentIds: z.array(Id).max(30).optional(),
+      removeBindingIds: z.array(Id).max(100).optional(),
+      removeTelemetryIds: z.array(Id).max(32).optional(),
+      moves: z
+        .array(
+          z
+            .object({ id: Id, view: z.enum(['wiring', 'schematic']), placement: PlacementSchema })
+            .strict(),
+        )
+        .max(100)
+        .optional(),
+      projectName: z.string().min(1).max(100).optional(),
+      boardSettings: BoardSettingsSchema.optional(),
+      configure: z
+        .array(
+          z
+            .object({
+              id: Id,
+              config: ComponentSchema.shape.config.optional(),
+              ref: z.string().min(1).max(48).optional(),
+              label: z.string().max(80).optional(),
+            })
+            .strict(),
+        )
+        .max(30)
+        .optional(),
+      targetBoardId: Id.nullable().optional(),
+      files: z.array(FileSchema).min(1).max(16).optional(),
+      bindings: z.array(BindingSchema).max(32).optional(),
+      telemetry: z.array(TelemetryMappingSchema).max(32).optional(),
+    })
+    .strict(),
+  update_firmware: z
+    .object({
+      expectedRevision: z.number().int().nonnegative(),
+      summary: z.string().min(1).max(240),
+      files: z.array(FileSchema).min(1).max(16),
+      bindings: z.array(BindingSchema).max(32).optional(),
+      telemetry: z.array(TelemetryMappingSchema).max(32).optional(),
+      targetBoardId: Id.optional(),
+    })
+    .strict(),
+  ask_user: z
+    .object({
+      question: z.string().min(1).max(500),
+      options: z
+        .array(
+          z
+            .object({
+              label: z.string().min(1).max(100),
+              description: z.string().max(180).optional(),
+            })
+            .strict(),
+        )
+        .min(2)
+        .max(5),
+    })
+    .strict(),
   inspect_hardware: z.object({}).strict(),
   read_telemetry: z
     .object({
@@ -70,6 +149,12 @@ export const toolSchemas = {
 };
 export type ToolName = keyof typeof toolSchemas;
 const descriptions: Record<ToolName, string> = {
+  edit_circuit:
+    'Edit a complete hardware batch with typed add/connect/configure/disconnect/remove arrays and optional targetBoardId. Optional files, bindings and telemetry allow coordinated circuit+code edits in ONE review/undo group. Every connect item is a wire (id,from,to,color); every add item has component and placement. No command type strings needed. Shared validated transaction/review/undo; never disconnect required functionality to hide an issue.',
+  update_firmware:
+    'Write visible firmware files plus optional literal bindings, Debug telemetry and targetBoardId together. Uses the same validated transaction/review/undo as circuit editing. No hidden source, upload or shell. Preserve unrelated code. Each file has id,path,content with actual newlines.',
+  ask_user:
+    'Ask one focused question with concrete choices. Waits for the user answer in the chat UI; free text is also supported. Use only for material missing facts, not routine supported design choices. This cannot approve physical operations.',
   inspect_diagnostics:
     'Read fresh deterministic diagnostics by ID or affected object, including rule/evidence, source location and semantic freshness. No inference or physical effects.',
   navigate:
@@ -109,7 +194,7 @@ export function contextFingerprint(text: string) {
   for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
   return (h >>> 0).toString(16);
 }
-export const toolSchemaVersion = 'trace-tools-8';
+export const toolSchemaVersion = 'trace-tools-13';
 export const toolDefinitions = Object.entries(toolSchemas).map(([name, schema]) => {
   const json = z.toJSONSchema(schema, { target: 'draft-7' });
   delete json.$schema;
@@ -250,6 +335,8 @@ export function inspectTool(name: string, args: unknown, p: Project): unknown {
         manufacturer: part.manufacturer,
         mpn: part.mpn,
         coverage: part.coverage,
+        operatingSupply: part.operatingSupply,
+        referenceFacts: referenceFacts(part.id),
         terminalIds: part.terminals.length <= 100 ? part.terminals.map((t) => t.id) : undefined,
         verifiedMapping: part.verifiedMapping,
         firmware: part.firmware,

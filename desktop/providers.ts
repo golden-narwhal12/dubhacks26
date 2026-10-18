@@ -76,11 +76,13 @@ export function providerPayload(req: ProviderRequest) {
         contents,
         tools: [
           {
-            functionDeclarations: tools.map((t) => ({
-              name: t.name,
-              description: t.description,
-              parametersJsonSchema: t.parameters,
-            })),
+            functionDeclarations: tools
+              .filter((t) => t.name !== 'project_changes')
+              .map((t) => ({
+                name: t.name,
+                description: t.description,
+                parametersJsonSchema: t.parameters,
+              })),
           },
         ],
         toolConfig: { functionCallingConfig: { mode: 'VALIDATED' } },
@@ -317,6 +319,24 @@ export class StreamAccumulator {
     }
   }
   finish(): TurnResult {
+    if (this.blocked.includes('MALFORMED_FUNCTION_CALL'))
+      return {
+        text: '',
+        calls: [],
+        native: undefined,
+        usage: normalizeUsage(this.provider, this.usageRaw),
+        recovery: {
+          code: 'MALFORMED_FUNCTION_CALL',
+          message: 'Provider generated an invalid tool call. No tools from this response executed.',
+        },
+        metadata: {
+          requestId: this.requestId,
+          responseId: this.responseId,
+          events: this.events,
+          duplicateCalls: this.duplicateCalls,
+          finishReason: this.finishReason,
+        },
+      };
     if (this.blocked) throw new Error(this.blocked);
     if (!this.complete)
       throw new Error(
